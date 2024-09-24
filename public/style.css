@@ -1,0 +1,80 @@
+@font-face {
+  font-family: 'Minecraft Ten';
+  src: url('font/minecraft-ten-font-cyrillic.ttf') format('truetype');
+}
+
+body { 
+  margin: 0; 
+  overflow: hidden; /* Prevent scrolling */
+  font-family: 'Minecraft Ten', Arial, sans-serif; /* Set the default font */
+}
+
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: white;
+  font-size: 20px;
+  padding: 30px;
+  z-index: 1000; /* Ensure the HUD is on top */
+  text-transform: uppercase;
+  font-family: 'Minecraft Ten', Arial, sans-serif; /* Apply the font */
+}
+
+#target {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 25px;
+  height: 25px;
+  background-color: transparent;
+  transform: translate(-50%, -50%);
+  pointer-events: none; /* Ensure the dot doesn't interfere with pointer events */
+  box-sizing: border-box;
+}
+
+#target::before,
+#target::after {
+  content: '';
+  position: absolute;
+  background-color: rgb(164, 164, 164);
+}
+
+#target::before {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+#target::after {
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+#menu {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  z-index: 2000; /* Ensure the menu is on top */
+  display: none; /* Initially hidden */
+  font-family: 'Minecraft Ten', Arial, sans-serif; /* Apply the font */
+}
+
+#menu input, #menu button {
+  display: block;
+  margin: 10px 0;
+  padding: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: 'Minecraft Ten', Arial, sans-serif; /* Apply the font */
+}
