@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const { createNoise2D } = require('simplex-noise');
 const alea = require('alea');
-const ChunkManager = require('./ChunkManager.js');
+const ChunkManager = require('./server/ChunkManager.js');
 
 // Constants
 const PORT = process.env.PORT || 3000;
@@ -23,6 +23,7 @@ const prng = alea(SEED);
 const noise2D = createNoise2D(prng);
 const chunkManager = new ChunkManager(noise2D, 15, 0, 0.5);
 let dayCycleTime = 0;
+const MAX_PLAYERS = 5;
 
 // Middleware
 app.use(express.static(path.join(__dirname, 'public')));
@@ -60,6 +61,11 @@ const updateChunksForPlayer = (socket, position) => {
 
 // Socket event handlers
 const handleConnection = (socket) => {
+    if (Object.keys(players).length >= MAX_PLAYERS) {
+        socket.emit('serverFull');
+        socket.disconnect(true);
+        return;
+    }
     console.log(`User connected: ${socket.id}`);
 
     players[socket.id] = { x: 0, y: 10, z: 0 };
