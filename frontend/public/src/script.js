@@ -69,7 +69,7 @@ function setupPlayer() {
 
 function setupSocketConnection() {
     const serverUrl = process.env.NODE_ENV === 'production' 
-        ? 'https://your-railway-app-name.up.railway.app' 
+        ? 'minecraft-classic-production.up.railway.app' 
         : 'http://localhost:3000';
     
     socket = io(serverUrl, {
