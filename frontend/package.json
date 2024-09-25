@@ -1,0 +1,15 @@
+{
+  "name": "minecraft-game-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "http-server public -p 8080"
+  },
+  "dependencies": {
+    "socket.io": "^4.5.0",
+    "three": "^0.132.2"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "serve": "^14.2.3"
+  }
+}

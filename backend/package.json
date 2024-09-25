@@ -1,0 +1,15 @@
+{
+  "name": "minecraft-game-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "alea": "^1.0.1",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "simplex-noise": "^3.0.1",
+    "socket.io": "^4.5.0"
+  }
+}
