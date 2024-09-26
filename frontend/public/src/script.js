@@ -1,7 +1,9 @@
+import { io } from 'https://cdn.socket.io/4.4.1/socket.io.esm.min.js';
+
 import { createPlayer, createOtherPlayer, addPlayerControls, checkCollisions } from './players.js';
 import { createMiniMap } from './minimap.js';
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js';
-import { io } from 'https://cdn.socket.io/4.5.0/socket.io.min.js';
+
 
 // Constants
 const CHUNK_SIZE = 16;
@@ -68,9 +70,7 @@ function setupPlayer() {
 }
 
 function setupSocketConnection() {
-    const serverUrl = process.env.NODE_ENV === 'production' 
-        ? 'minecraft-classic-production.up.railway.app' 
-        : 'http://localhost:3000';
+    const serverUrl = CONFIG.SERVER_URL;
     
     socket = io(serverUrl, {
         withCredentials: true,
