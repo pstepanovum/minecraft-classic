@@ -9,6 +9,7 @@
     "three": "^0.132.2"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "http-server": "^14.1.1",
     "serve": "^14.2.3"
   }
