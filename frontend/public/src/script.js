@@ -347,7 +347,9 @@ function getBlockType(y, surfaceHeight) {
     return 'stone';
 }
 
-// Event handlers
+//------------------------------------------------------------
+//                      Event listeners
+//------------------------------------------------------------
 function onScroll(event) {
     camera.fov = Math.max(0, Math.min(200, camera.fov + (event.deltaY < 0 ? -1 : 1)));
     camera.updateProjectionMatrix();
