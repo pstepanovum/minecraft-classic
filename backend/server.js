@@ -12,7 +12,7 @@ const ChunkManager = require('./server/ChunkManager.js');
 
 // Constants
 const PORT = process.env.PORT || 3000;
-const SEED = '1';
+const SEED = '5';
 const DAY_CYCLE_SPEED = 0.001;
 const UPDATE_INTERVAL = 1000 / 60; // ~60 FPS
 
