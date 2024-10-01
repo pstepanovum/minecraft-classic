@@ -2,15 +2,53 @@
 
 A browser-based Minecraft-like game built with Three.js for rendering and Socket.IO for multiplayer functionality. This project features a voxel-based world with terrain generation, player movement, and basic block manipulation.
 
-## Table of Contents
+## 🌟 Project Milestones
 
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Deployment](#deployment)
-- [Contributing](#contributing)
-- [License](#license)
+### 🌟 1 Star - Basic Foundations
+- [x] Set up project structure (frontend/backend)
+- [x] Implement basic Three.js rendering
+- [x] Create simple cube-based world
+
+### 🌟🌟 5 Stars - Core Gameplay Elements
+- [ ] Implement optimized seed generation
+- [ ] Add beautiful terrain generation with nature elements
+- [ ] Implement block collision detection
+- [ ] Allow players to add and remove blocks across the server
+
+### 🌟🌟🌟 10 Stars - Enhanced World Generation
+- [ ] Add tree generation for terrain
+- [ ] Implement cave generation
+- [ ] Add water features to the world
+
+### 🌟🌟🌟🌟 25 Stars - Player Interactions and UI
+- [ ] Implement player rotation visible to all connected players
+- [ ] Add a menu section with game settings
+- [ ] Implement player health system and physics-based damage (e.g., fall damage)
+
+### 🌟🌟🌟🌟🌟 50 Stars - Advanced Features
+- [ ] Implement day/night cycle
+- [ ] Add basic crafting system
+- [ ] Introduce simple AI mobs (e.g., animals, hostile creatures)
+
+### 🌟🌟🌟🌟🌟🌟 100 Stars - Polish and Expandability
+- [ ] Optimize performance for larger worlds and more players
+- [ ] Add sound effects and background music
+- [ ] Implement a basic modding system for easy expandability
+
+## 📝 To-Do List (Next Steps)
+
+1. [ ] Optimize seed generation algorithm
+2. [ ] Implement beautiful terrain generation with nature elements
+   - [ ] Add varied biomes (forests, deserts, mountains)
+   - [ ] Implement smooth transitions between biomes
+3. [ ] Add block collisions for all objects in the world
+4. [ ] Implement server-wide block manipulation (add/remove)
+5. [ ] Develop tree generation algorithm for diverse forests
+6. [ ] Create cave generation system for underground exploration
+7. [ ] Add water features (lakes, rivers, oceans)
+8. [ ] Implement player rotation visible to all connected players
+9. [ ] Design and implement a user-friendly settings menu
+10. [ ] Develop health system and physics-based damage calculations
 
 ## Features
 
@@ -21,90 +59,49 @@ A browser-based Minecraft-like game built with Three.js for rendering and Socket
 - Player movement and collision detection
 - Minimap for navigation
 
-## Prerequisites
+## Getting Started
 
-Before you begin, ensure you have met the following requirements:
+### Prerequisites
 
 - Node.js (v14 or higher)
 - npm (usually comes with Node.js)
 - Git
 
-## Installation
-
-To install the Minecraft Classic Clone, follow these steps:
+### Installation
 
 1. Clone the repository:
    ```
    git clone https://github.com/yourusername/minecraft-classic-clone.git
    cd minecraft-classic-clone
    ```
-
 2. Install backend dependencies:
    ```
    cd backend
    npm install
    ```
-
 3. Install frontend dependencies:
    ```
    cd ../frontend
    npm install
    ```
 
-## Usage
-
-To run the game locally:
+### Usage
 
 1. Start the backend server:
    ```
    cd backend
    npm start
    ```
-   The server will start on `http://localhost:3000`.
-
 2. In a new terminal, start the frontend server:
    ```
    cd frontend
    npm start
    ```
-   The frontend will be available on `http://localhost:8080`.
-
 3. Open your web browser and navigate to `http://localhost:8080` to play the game.
-
-## Deployment
-
-This project is set up for deployment to Vercel (frontend) and Railway (backend).
-
-### Backend Deployment (Railway)
-
-1. Create a new project on Railway and connect it to your GitHub repository.
-2. Set the following environment variables:
-   - `PORT`: 3000
-   - `FRONTEND_URL`: Your Vercel frontend URL (after deploying frontend)
-
-3. Deploy the backend by pushing to the connected GitHub repository.
-
-### Frontend Deployment (Vercel)
-
-1. Create a new project on Vercel and connect it to your GitHub repository.
-2. Set the following environment variables:
-   - `NEXT_PUBLIC_BACKEND_URL`: Your Railway backend URL
-
-3. Deploy the frontend by pushing to the connected GitHub repository.
-
-After deployment, update the `serverUrl` in `frontend/public/script.js` with your actual Railway backend URL and redeploy the frontend.
 
 ## Contributing
 
-Contributions to the Minecraft Classic Clone are welcome. To contribute:
-
-1. Fork the repository.
-2. Create a new branch: `git checkout -b feature-branch-name`.
-3. Make your changes and commit them: `git commit -m 'Add some feature'`.
-4. Push to the original branch: `git push origin feature-branch-name`.
-5. Create the pull request.
-
-Alternatively, see the GitHub documentation on [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for more details on how to get started.
 
 ## License
 
