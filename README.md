@@ -2,7 +2,7 @@
 
 A browser-based Minecraft-like game built with Three.js for rendering and Socket.IO for multiplayer functionality. This project features a voxel-based world with terrain generation, player movement, and basic block manipulation.
 
-## 🌟 Project Milestones
+## 🌟 Project Milestones!!!
 
 ### 🌟 1 Star - Basic Foundations
 - [x] Set up project structure (frontend/backend)
