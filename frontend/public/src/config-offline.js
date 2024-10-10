@@ -1,16 +1,9 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-
-// Constants
-const PORT = process.env.PORT || 3000;
 
 const BASE_GROUND_LEVEL = 64;
 const TERRAIN_HEIGHT_RANGE = 156;
 
-const WORLD_CONFIG = {
-    SEED: 1,
+export const WORLD_CONFIG_OFFLINE = {
+    SEED: 10,
     SIZE: 10000,
     BASE_GROUND_LEVEL: BASE_GROUND_LEVEL,
     TERRAIN_HEIGHT_RANGE: TERRAIN_HEIGHT_RANGE,
@@ -166,83 +159,3 @@ ORES: {
         }
     }
 };
-
-const app = express();
-const server = http.createServer(app);
-
-const FRONTEND_URL = process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL || "https://minecraft-classic-theta.vercel.app"
-    : "http://localhost:8080";
-
-const io = new Server(server, {
-    cors: {
-        origin: FRONTEND_URL,
-        methods: ["GET", "POST"],
-        credentials: true
-    }
-});
-
-app.use(cors({
-    origin: FRONTEND_URL,
-    credentials: true
-}));
-
-//-------------------------- Player --------------------------//
-const players = {};
-
-const handleConnection = (socket) => {
-    if (Object.keys(players).length >= WORLD_CONFIG.MAX_PLAYERS) {
-        socket.emit('serverFull');
-        socket.disconnect(true);
-        return;
-    }
-    console.log(`User connected: ${socket.id} (${Object.keys(players).length + 1} players)`);
-
-    // Create a new player
-    players[socket.id] = {
-        id: socket.id,
-        position: { x: 0, y: 0, z: 0 },
-
-    };
-
-    // Send world info and player info to the new player
-    socket.emit('worldInfo', { config: WORLD_CONFIG });
-    socket.emit('playerInfo', players[socket.id]);
-
-    // Send the new player info to all other players
-    socket.broadcast.emit('newPlayer', players[socket.id]);
-
-    // Send all existing players to the new player
-    Object.values(players).forEach(player => {
-        if (player.id !== socket.id) {
-            socket.emit('newPlayer', player);
-        }
-    });
-
-    // Handle player movement
-    socket.on('playerMove', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].position = data.position;
-            socket.broadcast.emit('playerMove', players[socket.id]);
-        }
-    });
-
-    socket.on('disconnect', () => handleDisconnect(socket));
-};
-
-const handleDisconnect = (socket) => {
-    console.log(`User disconnected: ${socket.id}`);
-    if (players[socket.id]) {
-        delete players[socket.id];
-        io.emit('playerDisconnected', socket.id);
-    }
-};
-
-//-------------------------- End of Player --------------------------//
-
-io.on('connection', handleConnection);
-
-// Start the server
-server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});

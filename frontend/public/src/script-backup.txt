@@ -1,0 +1,657 @@
+
+//----------------- Imports -----------------//
+import { createPlayer, addPlayerControls} from './players.js';
+import { createMiniMap } from './map.js';
+import SimplexNoise from 'https://cdn.jsdelivr.net/npm/simplex-noise@3.0.1/dist/esm/simplex-noise.js';
+
+
+//----------------- Constants -----------------//
+const CHUNK_SIZE = 32;
+const MAX_INSTANCES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+const BUBBLE_RADIUS = 1;
+const CHUNK = new Map();
+const chunkLoadQueue = [];
+const chunkUnloadQueue = [];
+let isProcessingChunks = false;
+
+
+const textureLoader = new THREE.TextureLoader();
+
+
+
+let scene, camera, renderer, player;
+let socket;
+
+//----------------- World Configuration -----------------//
+let worldSize, maxHeight, baseGroundLevel, terrainHeightRange, seed;
+// Cave generation
+let caveThreshold, caveScale, caveMinHeight, caveMaxHeight, caveLacunarity, cavePersistence, caveOctaves, caveWormRadius;
+let terrainScale, terrainOctaves, terrainAmplitude, terrainFrequency;
+let mountainScale, mountainWeight, hillScale, hillWeight, plainScale, plainWeight;
+let waterLevel, chunkSize, renderDistance;
+let biomes;
+// Ores generation
+let oreCoal, oreIron, oreGold, oreDiamond;
+let simplex;
+//----------------- Configuration -----------------//
+
+
+//----------------- Textures -----------------//
+const blockGeometry = new THREE.BoxGeometry();
+
+const blockTextures = {
+    grass: {
+        top: textureLoader.load('./texture-pack/grass-top.png'),
+        bottom: textureLoader.load('./texture-pack/dirt.webp'),
+        side: textureLoader.load('./texture-pack/grass-side.webp')
+    },
+    dirt: textureLoader.load('./texture-pack/dirt.webp'),
+    stone: textureLoader.load('./texture-pack/stone.webp'),
+    sand: textureLoader.load('./texture-pack/sand.webp'),
+    gravel: textureLoader.load('./texture-pack/gravel.webp'),
+    rooted_dirt: textureLoader.load('./texture-pack/rooted-dirt.webp'),
+    coal_ore: textureLoader.load('./texture-pack/coal-ore.webp'),
+    iron_ore: textureLoader.load('./texture-pack/iron_ore.webp'),
+    diamond_ore: textureLoader.load('./texture-pack/diamond_ore.png'),
+    gold_ore: textureLoader.load('./texture-pack/gold_ore.jpeg'),
+    water: textureLoader.load('./texture-pack/water.webp'),
+    snow: {
+        top: textureLoader.load('./texture-pack/snow.webp'),
+        side: textureLoader.load('./texture-pack/snow.webp'),
+    },
+    desert: {
+        top: textureLoader.load('./texture-pack/sand.webp'),
+        side: textureLoader.load('./texture-pack/sand.webp')
+    },
+    forest_floor: textureLoader.load('./texture-pack/moss.webp'),
+    mountain: textureLoader.load('./texture-pack/moss.webp')
+};
+
+const blockMaterials = {
+    grass: [
+        new THREE.MeshLambertMaterial({ map: blockTextures.grass.side }),
+        new THREE.MeshLambertMaterial({ map: blockTextures.grass.side }),
+        new THREE.MeshLambertMaterial({ map: blockTextures.grass.top }),
+        new THREE.MeshLambertMaterial({ map: blockTextures.grass.bottom }),
+        new THREE.MeshLambertMaterial({ map: blockTextures.grass.side }),
+        new THREE.MeshLambertMaterial({ map: blockTextures.grass.side })
+    ],
+    sand: new THREE.MeshLambertMaterial({ map: blockTextures.sand }),
+    stone: new THREE.MeshLambertMaterial({ map: blockTextures.stone }),
+    water: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/water.webp') }),
+    snow: [
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/snow.webp') }), // side
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/snow.webp') }), // side
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/snow.webp') }), // top
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/snow.webp') }), // bottom
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/snow.webp') }), // side
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/snow.webp') })  // side
+    ],
+    desert: [
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/sand.webp') }), // side
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/sand.webp') }), // side
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/sand.webp') }), // top
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/sand.webp') }), // bottom
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/sand.webp') }), // side
+        new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/sand.webp') })  // side
+    ],
+    forest_floor: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/moss.webp') }),
+    mountain: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/moss.webp') }),
+    dirt: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/dirt.webp') }),
+
+    //Ore
+    coal_ore: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/coal-ore.webp') }),
+    iron_ore: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/iron_ore.webp') }),
+    gold_ore: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/gold_ore.jpeg') }),
+    diamond_ore: new THREE.MeshLambertMaterial({ map: textureLoader.load('./texture-pack/diamond_ore.png') })
+
+};
+
+function getBlockType(y, surfaceHeight, biomeType) {
+    switch (biomeType) {
+        case 'desert':
+            if (y === surfaceHeight) return 'sand';
+            if (y > surfaceHeight - 3) return 'sand';
+            return 'stone';
+        case 'plains':
+            if (y === surfaceHeight) return 'grass';
+            if (y > surfaceHeight - 2) return 'dirt';
+            return 'stone';
+        case 'forest':
+            if (y === surfaceHeight) return 'grass';
+            if (y > surfaceHeight - 4) return 'dirt';
+            return 'stone';
+        case 'mountain':
+            if (y === surfaceHeight) return y > 80 ? 'snow' : 'stone';
+            return 'stone';
+        case 'snow':
+            if (y === surfaceHeight) return 'snow';
+            if (y > surfaceHeight - 2) return 'dirt';
+            return 'stone';
+        default:
+            if (y === surfaceHeight) return 'grass';
+            if (y > surfaceHeight - 3) return 'dirt';
+            return 'stone';
+    }
+}
+
+
+function getBiomeType(x, z) {
+    const biomeScale = 0.005;
+    const biomeNoise = simplex.noise2D(x * biomeScale, z * biomeScale);
+
+    if (biomeNoise < -0.6) return 'desert';
+    if (biomeNoise < -0.2) return 'plains';
+    if (biomeNoise < 0.2) return 'forest';
+    if (biomeNoise < 0.6) return 'mountain';
+    return 'snow';
+}
+
+//----------------- Initialization -----------------//
+function init() {
+    setupScene();
+    setupSocketConnection();
+    setupEventListeners();
+    setupLighting();
+}
+
+function setupScene() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 20, 20);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true }); // Enable antialiasing for smoother edges
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+    renderer.outputEncoding = THREE.sRGBEncoding; // Improved color rendering
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; // Enhanced contrast and color grading
+    renderer.toneMappingExposure = 0.5; // Adjust this value to control overall brightness
+    renderer.setClearColor(0xFFFFFF);
+    document.body.appendChild(renderer.domElement);
+}
+
+function setupLighting() {
+    // Ambient light for overall scene brightness
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+
+    // Main directional light (sun)
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(100, 100, 50);
+    directionalLight.castShadow = true;
+    
+    // Optimize shadow map
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.camera.near = 50;
+    directionalLight.shadow.camera.far = 300;
+    directionalLight.shadow.camera.left = -150;
+    directionalLight.shadow.camera.right = 150;
+    directionalLight.shadow.camera.top = 150;
+    directionalLight.shadow.camera.bottom = -150;
+    directionalLight.shadow.bias = -0.0005;
+    directionalLight.shadow.normalBias = 0.02;
+    directionalLight.shadow.radius = 4; // Reduced for sharper shadows
+    
+    scene.add(directionalLight);
+
+    // Hemisphere light for sky-ground color variation
+    const hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x545454, 0.4);
+    scene.add(hemisphereLight);
+
+    // Player light for local illumination
+    const playerLight = new THREE.PointLight(0xffffff, 0.7, 20);
+    playerLight.position.set(0, 2, 0); // This should be updated to follow the player
+    scene.add(playerLight);
+}
+
+//----------------- World -----------------//
+function handleWorldInfo(data) {
+    const worldConfig = data.config || WORLD_CONFIG;  // Use default if not provided
+    // Load world configuration
+    worldSize = worldConfig.SIZE;
+    maxHeight = worldConfig.MAX_HEIGHT;
+    baseGroundLevel = worldConfig.BASE_GROUND_LEVEL;
+    terrainHeightRange = worldConfig.TERRAIN_HEIGHT_RANGE;
+    
+    // Cave generation
+    caveThreshold = worldConfig.CAVE.THRESHOLD;
+    caveScale = worldConfig.CAVE.SCALE;
+    caveLacunarity = worldConfig.CAVE.LACUNARITY;
+    cavePersistence = worldConfig.CAVE.PERSISTENCE;
+    caveOctaves = worldConfig.CAVE.OCTAVES;
+    caveWormRadius = worldConfig.CAVE.WORM_RADIUS;
+    caveMinHeight = worldConfig.CAVE.MIN_HEIGHT;
+    caveMaxHeight = worldConfig.CAVE.MAX_HEIGHT;
+    
+    // Terrain generation
+    seed = worldConfig.SEED;
+
+    terrainScale = worldConfig.TERRAIN.SCALE;
+    terrainOctaves = worldConfig.TERRAIN.OCTAVES;
+    terrainAmplitude = worldConfig.TERRAIN.AMPLITUDE;
+    terrainFrequency = worldConfig.TERRAIN.FREQUENCY;
+
+    mountainScale = worldConfig.TERRAIN.FEATURES.MOUNTAIN.SCALE;
+    mountainWeight = worldConfig.TERRAIN.FEATURES.MOUNTAIN.WEIGHT;
+    hillScale = worldConfig.TERRAIN.FEATURES.HILL.SCALE;
+    hillWeight = worldConfig.TERRAIN.FEATURES.HILL.WEIGHT;
+    plainScale = worldConfig.TERRAIN.FEATURES.PLAIN.SCALE;
+    plainWeight = worldConfig.TERRAIN.FEATURES.PLAIN.WEIGHT;
+
+    waterLevel = worldConfig.WATER_LEVEL;
+    chunkSize = worldConfig.CHUNK_SIZE;
+    renderDistance = worldConfig.RENDER_DISTANCE;
+
+    biomes = worldConfig.BIOMES;
+
+    // Ore generation
+    oreCoal = worldConfig.ORES.COAL;
+    oreIron = worldConfig.ORES.IRON;
+    oreGold = worldConfig.ORES.GOLD;
+    oreDiamond = worldConfig.ORES.DIAMOND;
+
+    simplex = new SimplexNoise(seed);
+
+
+
+    console.log("World configuration loaded:", worldConfig);
+}
+
+//----------------- Chunk Generation -----------------//
+function generateInitialChunk() {
+    const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
+    const playerChunkY = Math.floor(player.position.y / CHUNK_SIZE);
+    const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
+
+    for (let dy = Math.max(-BUBBLE_RADIUS, -maxHeight); dy <= Math.min(BUBBLE_RADIUS, maxHeight); dy++) {
+        const chunkY = playerChunkY + dy;
+        if (chunkY < 0 || chunkY >= maxHeight) continue;
+    
+        for (let dx = -BUBBLE_RADIUS; dx <= BUBBLE_RADIUS; dx++) {
+            for (let dz = -BUBBLE_RADIUS; dz <= BUBBLE_RADIUS; dz++) {
+                const chunkX = playerChunkX + dx;
+                const chunkZ = playerChunkZ + dz;
+                queueChunkLoad(chunkX, chunkY, chunkZ);
+            }
+        }
+    }
+}
+
+function queueChunkLoad(chunkX, chunkY, chunkZ) {
+    const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
+    if (!CHUNK.has(chunkKey) && !chunkLoadQueue.some(chunk => chunk.key === chunkKey)) {
+        chunkLoadQueue.push({ x: chunkX, y: chunkY, z: chunkZ, key: chunkKey });
+    }
+    if (!isProcessingChunks) {
+        processChunkQueue();
+    }
+}
+
+function queueChunkUnload(chunkKey) {
+    if (CHUNK.has(chunkKey) && !chunkUnloadQueue.includes(chunkKey)) {
+        chunkUnloadQueue.push(chunkKey);
+    }
+    if (!isProcessingChunks) {
+        processChunkQueue();
+    }
+}
+
+async function processChunkQueue() {
+    if (isProcessingChunks) return;
+    isProcessingChunks = true;
+
+    while (chunkLoadQueue.length > 0 || chunkUnloadQueue.length > 0) {
+        // Process a few chunks per frame
+        const chunksPerFrame = 64; // <-- Adjust this number
+
+        for (let i = 0; i < chunksPerFrame && chunkLoadQueue.length > 0; i++) {
+            const chunk = chunkLoadQueue.shift();
+            await generateChunk(chunk.x, chunk.y, chunk.z);
+        }
+
+        // Unload chunks
+        for (let i = 0; i < chunksPerFrame && chunkUnloadQueue.length > 0; i++) {
+            const chunkKey = chunkUnloadQueue.shift();
+            unloadChunk(chunkKey);
+        }
+
+        // Allow the browser to update the display
+        await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    isProcessingChunks = false;
+}
+
+async function generateChunk(chunkX, chunkY, chunkZ) {
+    if (chunkY < 0 || chunkY >= maxHeight) return;
+    const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
+    if (CHUNK.has(chunkKey)) return;
+
+    const chunkGroup = new THREE.Group();
+    chunkGroup.name = chunkKey;
+
+    const instances = {
+        grass: new THREE.InstancedMesh(blockGeometry, blockMaterials.grass, MAX_INSTANCES),
+        sand: new THREE.InstancedMesh(blockGeometry, blockMaterials.sand, MAX_INSTANCES),
+        stone: new THREE.InstancedMesh(blockGeometry, blockMaterials.stone, MAX_INSTANCES),
+        water: new THREE.InstancedMesh(blockGeometry, blockMaterials.water, MAX_INSTANCES),
+        snow: new THREE.InstancedMesh(blockGeometry, blockMaterials.snow, MAX_INSTANCES),
+        desert: new THREE.InstancedMesh(blockGeometry, blockMaterials.desert, MAX_INSTANCES),
+        forest_floor: new THREE.InstancedMesh(blockGeometry, blockMaterials.forest_floor, MAX_INSTANCES),
+        mountain: new THREE.InstancedMesh(blockGeometry, blockMaterials.mountain, MAX_INSTANCES),
+        dirt: new THREE.InstancedMesh(blockGeometry, blockMaterials.dirt, MAX_INSTANCES),
+        coal_ore: new THREE.InstancedMesh(blockGeometry, blockMaterials.coal_ore, MAX_INSTANCES),
+        iron_ore: new THREE.InstancedMesh(blockGeometry, blockMaterials.iron_ore, MAX_INSTANCES),
+        gold_ore: new THREE.InstancedMesh(blockGeometry, blockMaterials.gold_ore, MAX_INSTANCES),
+        diamond_ore: new THREE.InstancedMesh(blockGeometry, blockMaterials.diamond_ore, MAX_INSTANCES)
+    };
+    for (const mesh of Object.values(instances)) {
+        mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        
+        // Set a fixed bounding box for the entire chunk
+        mesh.boundingBox = new THREE.Box3(
+            new THREE.Vector3(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, chunkZ * CHUNK_SIZE),
+            new THREE.Vector3((chunkX + 1) * CHUNK_SIZE, (chunkY + 1) * CHUNK_SIZE, (chunkZ + 1) * CHUNK_SIZE)
+        );
+        mesh.boundingSphere = new THREE.Sphere();
+        mesh.boundingBox.getBoundingSphere(mesh.boundingSphere);
+        
+        chunkGroup.add(mesh);
+    }
+
+    const matrix = new THREE.Matrix4();
+    const instanceCounts = {};
+
+    await new Promise(resolve => {
+        setTimeout(() => {
+            for (let x = 0; x < CHUNK_SIZE; x++) {
+                for (let y = 0; y < CHUNK_SIZE; y++) {
+                    for (let z = 0; z < CHUNK_SIZE; z++) {
+                        const worldX = chunkX * CHUNK_SIZE + x;
+                        const worldY = chunkY * CHUNK_SIZE + y;
+                        const worldZ = chunkZ * CHUNK_SIZE + z;
+                        
+                        if (Math.abs(worldX) <= worldSize && Math.abs(worldZ) <= worldSize) {
+                            const height = generateTerrainHeight(worldX, worldZ);
+                            const biomeType = getBiomeType(worldX, worldZ);
+
+                            if (worldY <= height) {
+                                let blockType;
+                                
+                                if (isCave(worldX, worldY, worldZ)) {
+                                    blockType = null;
+                                } else {
+                                    blockType = getBlockType(worldY, height, biomeType);
+                                    // Ore generation
+                                    if (blockType === 'stone') {
+                                        const oreType = generateOre(worldX, worldY, worldZ);
+                                        if (oreType) {
+                                            blockType = oreType + '_ore';
+                                        }
+                                    }
+                                }
+
+                                if (blockType !== null) {
+                                    if (!instances[blockType]) {
+                                        console.error(`Unknown block type: ${blockType}`);
+                                        continue;
+                                    }
+                                    matrix.setPosition(worldX, worldY, worldZ);
+                                    instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, matrix);
+                                    instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            resolve();
+        }, 0);
+    });
+
+
+    for (const [blockType, mesh] of Object.entries(instances)) {
+        mesh.count = instanceCounts[blockType] || 0;
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    scene.add(chunkGroup);
+    CHUNK.set(chunkKey, chunkGroup);
+}
+
+function unloadChunk(chunkKey) {
+    const chunkGroup = CHUNK.get(chunkKey);
+    if (chunkGroup) {
+        scene.remove(chunkGroup);
+        CHUNK.delete(chunkKey);
+    }
+}
+
+function generateTerrainHeight(x, z) {
+    let noise = 0;
+    let amplitude = terrainAmplitude;
+    let frequency = terrainFrequency;
+
+    // Generate base terrain noise
+    for (let i = 0; i < terrainOctaves; i++) {
+        noise += simplex.noise2D(x * terrainScale * frequency, z * terrainScale * frequency) * amplitude;
+        amplitude *= 0.5;
+        frequency *= 2;
+    }
+
+    // Add feature noises with Gaussian falloff
+    const mountainNoise = simplex.noise2D(x * mountainScale, z * mountainScale) * mountainWeight;
+    const hillNoise = simplex.noise2D(x * hillScale, z * hillScale) * hillWeight;
+    const plainNoise = simplex.noise2D(x * plainScale, z * plainScale) * plainWeight;
+
+    // Apply Gaussian falloff to each feature noise
+    const mountainFalloff = gaussianFalloff(noise, -1, 1);
+    const hillFalloff = gaussianFalloff(noise, -1, 1);
+    const plainFalloff = gaussianFalloff(noise, -1, 1);
+
+    // Blend all noises with their respective falloffs
+    const blendedNoise = (
+        noise * 0.6 +
+        mountainNoise * mountainFalloff * 0.8 +
+        hillNoise * hillFalloff * 0.3 +
+        plainNoise * plainFalloff * 0.1
+    );
+    
+    // Normalize to 0-1 range
+    const normalizedNoise = (blendedNoise + 1) / 2;
+
+    // Apply a final Gaussian falloff to smooth out extreme elevations
+    const finalFalloff = gaussianFalloff(normalizedNoise, 0.2, 0.8);
+    const smoothedNoise = normalizedNoise * finalFalloff;
+
+    // Calculate final surface height
+    const surfaceHeight = Math.floor(baseGroundLevel + smoothedNoise * terrainHeightRange);
+
+    return Math.min(surfaceHeight, maxHeight);
+}
+
+function updateChunk() {
+    const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
+    const playerChunkY = Math.floor(player.position.y / CHUNK_SIZE);
+    const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
+
+    for (let dx = -BUBBLE_RADIUS; dx <= BUBBLE_RADIUS; dx++) {
+        for (let dy = -BUBBLE_RADIUS; dy <= BUBBLE_RADIUS; dy++) {
+            for (let dz = -BUBBLE_RADIUS; dz <= BUBBLE_RADIUS; dz++) {
+                const chunkX = playerChunkX + dx;
+                const chunkY = playerChunkY + dy;
+                const chunkZ = playerChunkZ + dz;
+                queueChunkLoad(chunkX, chunkY, chunkZ);
+            }
+        }
+    }
+
+    // Queue chunks for unloading
+    for (const [chunkKey, chunkGroup] of CHUNK) {
+        const [chunkX, chunkY, chunkZ] = chunkKey.split(',').map(Number);
+        if (Math.abs(chunkX - playerChunkX) > BUBBLE_RADIUS || 
+            Math.abs(chunkY - playerChunkY) > BUBBLE_RADIUS || 
+            Math.abs(chunkZ - playerChunkZ) > BUBBLE_RADIUS) {
+            queueChunkUnload(chunkKey);
+        }
+    }
+}
+
+//----------------- Cave Generation -----------------//
+
+function isCave(x, y, z) {
+    const heightFalloff = gaussianFalloff(y, caveMinHeight, caveMaxHeight);
+    
+    if (heightFalloff < 0.01) {
+        return false;
+    }
+
+    let frequency = caveScale;
+    let amplitude = 1.0;
+    let maxValue = 0.0;
+    let noise = 0.0;
+
+    for (let i = 0; i < caveOctaves; i++) {
+        let sampleX = x * frequency;
+        let sampleY = y * frequency;
+        let sampleZ = z * frequency;
+
+        let perlinValue = simplex.noise3D(sampleX, sampleY, sampleZ);
+        noise += perlinValue * amplitude;
+
+        maxValue += amplitude;
+        amplitude *= cavePersistence;
+        frequency *= caveLacunarity;
+    }
+
+    // Normalize the noise value
+    noise = noise / maxValue;
+
+    // Create worm-like structures
+    let wormValue = Math.sin(x * 0.1) * Math.cos(z * 0.1) * caveWormRadius;
+
+    // Combine noise and worm value
+    let finalValue = noise + wormValue;
+
+    // Apply height falloff
+    finalValue *= heightFalloff;
+
+    return finalValue > caveThreshold;
+}
+
+//----------------- Ore Generation -----------------//
+function generateOre(x, y, z) {
+    if (y >= oreCoal.MIN_HEIGHT && y <= oreCoal.MAX_HEIGHT) {
+        const noiseCoal = simplex.noise3D(x * oreCoal.SCALE, y * oreCoal.SCALE, z * oreCoal.SCALE);
+        if (noiseCoal > oreCoal.THRESHOLD) return 'coal';
+    }
+
+    if (y >= oreIron.MIN_HEIGHT && y <= oreIron.MAX_HEIGHT) {
+        const noiseIron = simplex.noise3D(x * oreIron.SCALE, y * oreIron.SCALE, z * oreIron.SCALE);
+        if (noiseIron > oreIron.THRESHOLD) return 'iron';
+    }
+
+    if (y >= oreGold.MIN_HEIGHT && y <= oreGold.MAX_HEIGHT) {
+        const noiseGold = simplex.noise3D(x * oreGold.SCALE, y * oreGold.SCALE, z * oreGold.SCALE);
+        if (noiseGold > oreGold.THRESHOLD) return 'gold';
+    }
+
+    if (y >= oreDiamond.MIN_HEIGHT && y <= oreDiamond.MAX_HEIGHT) {
+        const noiseDiamond = simplex.noise3D(x * oreDiamond.SCALE, y * oreDiamond.SCALE, z * oreDiamond.SCALE);
+        if (noiseDiamond > oreDiamond.THRESHOLD) return 'diamond';
+    }
+
+    return null;
+}
+
+//----------------- Terrain Smooth -----------------//
+function gaussianFalloff(value, min, max) {
+    const center = (min + max) / 2;
+    const width = (max - min) / 2;
+    return Math.exp(-Math.pow((value - center) / width, 2) / 2);
+}
+
+
+
+//----------------- Player -----------------//
+function handlePlayerInfo(playerData) {
+    player = createPlayer(scene, playerData);
+
+    generateInitialChunk();
+
+    animate();
+}
+
+
+//----------------- Player Interactions -----------------//
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+//----------------- Animation -----------------//
+
+// Modify the animate function:
+function animate() {
+    const updatePlayerMovement = addPlayerControls(player, camera, scene, renderer.domElement, socket);
+    const updateMiniMap = createMiniMap(scene, player);
+
+    renderer.setAnimationLoop(() => {
+        updatePlayerMovement();
+        updateMiniMap();
+        updateChunk();
+
+        const playerLight = scene.getObjectByProperty('type', 'PointLight');
+        if (playerLight) {
+            playerLight.position.copy(player.position).add(new THREE.Vector3(0, 10, 0));
+        }
+        
+        // Update shadow camera position based on player position
+        const directionalLight = scene.getObjectByProperty('type', 'DirectionalLight');
+        if (directionalLight) {
+            directionalLight.position.set(
+                player.position.x + 50,
+                player.position.y + 100,
+                player.position.z + 50
+            );
+            directionalLight.target.position.copy(player.position);
+            directionalLight.target.updateMatrixWorld();
+            directionalLight.shadow.camera.updateProjectionMatrix();
+        }
+        
+        renderer.render(scene, camera);
+    });
+}
+
+//----------------- Event Listeners -----------------//
+function setupEventListeners() {
+    window.addEventListener('resize', onWindowResize);
+}
+
+
+//----------------- Initialization -----------------//
+window.addEventListener('load', init);
+
+
+//-----------------      Socket  -----------------//
+function setupSocketConnection() {
+    const serverUrl = CONFIG.SERVER_URL;
+    
+    socket = io(serverUrl, {
+        withCredentials: true,
+        transports: ['websocket', 'polling']
+    });
+
+    socket.on('worldInfo', handleWorldInfo);
+    socket.on('playerInfo', handlePlayerInfo);
+
+    socket.on('connect', () => {
+        console.log('Connected to server');
+    });
+}

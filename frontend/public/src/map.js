@@ -1,7 +1,6 @@
 export function createMiniMap(scene, player) {
     const MINIMAP_SIZE = 250;
     const MINIMAP_PADDING = 20;
-    const PLAYER_DOT_SIZE = 8;
     const BORDER_RADIUS = '10px';
     const BACKGROUND_COLOR = 'rgba(0, 0, 0, 0.5)';
     const BORDER_COLOR = '#ffffff';
@@ -10,9 +9,9 @@ export function createMiniMap(scene, player) {
 
     // Create minimap camera
     const miniMapCamera = new THREE.OrthographicCamera(
-        -75, 75, 75, -75, 1, 1000
+        -10, 10, 10, -10, 1, 1000
     );
-    miniMapCamera.position.set(0, 150, 0);
+    miniMapCamera.position.set(0, 250, 0);
     miniMapCamera.lookAt(0, 0, 0);
 
     // Create minimap renderer
@@ -39,16 +38,6 @@ export function createMiniMap(scene, player) {
     minimapContainer.appendChild(miniMapRenderer.domElement);
     document.body.appendChild(minimapContainer);
 
-    // Create player dot
-    const playerDot = document.createElement('div');
-    playerDot.style.width = `${PLAYER_DOT_SIZE}px`;
-    playerDot.style.height = `${PLAYER_DOT_SIZE}px`;
-    playerDot.style.borderRadius = '50%';
-    playerDot.style.backgroundColor = '#ff0000';
-    playerDot.style.position = 'absolute';
-    playerDot.style.transform = 'translate(-50%, -50%)';
-    minimapContainer.appendChild(playerDot);
-
     // Create compass
     const compass = document.createElement('div');
     compass.style.position = 'absolute';
@@ -59,14 +48,6 @@ export function createMiniMap(scene, player) {
     compass.style.fontSize = '16px';
     compass.textContent = 'N';
     minimapContainer.appendChild(compass);
-
-    // Function to update player position on minimap
-    function updatePlayerPosition() {
-        const x = (player.position.x / 150 + 0.5) * MINIMAP_SIZE;
-        const z = (player.position.z / 150 + 0.5) * MINIMAP_SIZE;
-        playerDot.style.left = `${x}px`;
-        playerDot.style.top = `${z}px`;
-    }
 
     // Function to update compass direction
     function updateCompass() {
@@ -98,7 +79,6 @@ export function createMiniMap(scene, player) {
             player.position.z
         );
         miniMapRenderer.render(scene, miniMapCamera);
-        updatePlayerPosition();
         updateCompass();
     }
 
