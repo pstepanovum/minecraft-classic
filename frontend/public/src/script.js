@@ -401,6 +401,9 @@ async function init() {
 
     removeLoadingScreen();
     startGameIfReady();
+
+    // Show the intro popup after a short delay
+    setTimeout(showIntroPopup, 1000);
 }
 
 function startOfflineMode() {
@@ -410,7 +413,25 @@ function startOfflineMode() {
 //----------------------------------------------------------------//
 
 
+function showIntroPopup() {
+    const popup = document.getElementById('intro-popup');
+    popup.style.display = 'block';
 
+    const closeButton = document.getElementById('close-popup');
+    closeButton.addEventListener('click', hideIntroPopup);
+
+    // Close popup when clicking outside
+    window.addEventListener('click', function(event) {
+        if (event.target === popup) {
+            hideIntroPopup();
+        }
+    });
+}
+
+function hideIntroPopup() {
+    const popup = document.getElementById('intro-popup');
+    popup.style.display = 'none';
+}
 
 
 

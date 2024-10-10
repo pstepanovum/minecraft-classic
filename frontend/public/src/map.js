@@ -5,7 +5,7 @@ export function createMiniMap(scene, player) {
     const BACKGROUND_COLOR = 'rgba(0, 0, 0, 0.5)';
     const BORDER_COLOR = '#ffffff';
 
-    let isMinimapVisible = true;
+    let isMinimapVisible = false; // Initially hidden
 
     // Create minimap camera
     const miniMapCamera = new THREE.OrthographicCamera(
@@ -33,6 +33,8 @@ export function createMiniMap(scene, player) {
     minimapContainer.style.padding = '10px';
     minimapContainer.style.border = `2px solid ${BORDER_COLOR}`;
     minimapContainer.style.transition = 'opacity 0.3s ease-in-out';
+    minimapContainer.style.opacity = '0'; // Initially hidden
+    minimapContainer.style.pointerEvents = 'none'; // Initially not interactive
 
     // Add minimap renderer to container
     minimapContainer.appendChild(miniMapRenderer.domElement);
@@ -62,9 +64,9 @@ export function createMiniMap(scene, player) {
         minimapContainer.style.pointerEvents = isMinimapVisible ? 'auto' : 'none';
     }
 
-    // Add event listener for 'M' key press
+    // Add event listener for 'M' or 'N' key press
     document.addEventListener('keydown', (event) => {
-        if (event.key.toLowerCase() === 'm') {
+        if (event.key.toLowerCase() === 'M' || event.key.toLowerCase() === 'n') {
             toggleMinimap();
         }
     });

@@ -1,12 +1,17 @@
 @font-face {
-  font-family: 'Minecraft Ten';
+  font-family: 'Minecraft Bold';
   src: url('./font/minecraft-ten-font-cyrillic.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Minecraft';
+  src: url('./font/Minecraftchmc-dBlX.ttf') format('truetype');
 }
 
 body { 
   margin: 0; 
   overflow: hidden; /* Prevent scrolling */
-  font-family: 'Minecraft Ten', Arial, sans-serif; /* Set the default font */
+  font-family: 'Minecraft Bold', Arial, sans-serif; /* Set the default font */
 }
 
 #hud {
@@ -18,7 +23,7 @@ body {
   padding: 30px;
   z-index: 1000; /* Ensure the HUD is on top */
   text-transform: uppercase;
-  font-family: 'Minecraft Ten', Arial, sans-serif; /* Apply the font */
+  font-family: 'Minecraft Bold', Arial, sans-serif; /* Apply the font */
 }
 
 #target {
@@ -67,7 +72,7 @@ body {
   border-radius: 10px;
   z-index: 2000; /* Ensure the menu is on top */
   display: none; /* Initially hidden */
-  font-family: 'Minecraft Ten', Arial, sans-serif; /* Apply the font */
+  font-family: 'Minecraft Bold', Arial, sans-serif; /* Apply the font */
 }
 
 #menu input, #menu button {
@@ -76,7 +81,7 @@ body {
   padding: 10px;
   width: 100%;
   box-sizing: border-box;
-  font-family: 'Minecraft Ten', Arial, sans-serif; /* Apply the font */
+  font-family: 'Minecraft Bold', Arial, sans-serif; /* Apply the font */
 }
 
 #loading-screen {
@@ -134,4 +139,120 @@ body {
 
 #server-status.offline {
   color: #F44336;
+}
+
+
+/*--- Intro Popup ---*/
+
+#intro-popup {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: #6f6f6f;
+  border: 2px solid #000000;
+  color: white;
+  padding: 30px;
+  z-index: 1000;
+  max-width: 80%;
+  text-align: center;
+  max-width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: inset -2px -4px #0006, inset 2px 2px #FFF7;
+  padding: 30px; /* Add padding to create a boundary */
+  box-sizing: border-box; /* Ensure padding is included in the element's total width and height */
+}
+
+#intro-popup h2 {
+  font-family: 'Minecraft Bold', Arial, sans-serif;
+  margin-top: 0;
+  font-size: 26px;
+  text-transform: uppercase;
+}
+
+#intro-popup ul {
+  text-align: left;
+  padding-left: 25px;
+}
+
+
+
+#intro-popup p, #intro-popup ul {
+  font-family: 'Minecraft', Arial, sans-serif;
+  font-size: 26px;
+}
+
+#intro-popup a {
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+#intro-popup a:hover {
+  text-decoration: underline;
+}
+
+#close-popup {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  font-family: 'Minecraft', Arial, sans-serif;
+}
+
+
+
+/* Minecraft-style button */
+.minecraft-button {
+  background-color: #999999;
+  border: 2px solid #000000;
+  color: white;
+  padding: 6px 12px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 26px;
+  margin: 4px 2px;
+  cursor: pointer;
+  font-family: 'Minecraft', Arial, sans-serif;
+  text-transform: uppercase;
+  text-shadow: 2px 2px #000000;
+  box-shadow: inset -2px -4px #0006, inset 2px 2px #FFF7;
+}
+
+.minecraft-button:hover {
+  background-color: #8b8b8b;
+}
+
+#intro-popup li {
+  margin-bottom: 5px;
+}
+
+@media (max-width: 600px) {
+  #intro-popup {
+    font-size: 20px;
+  }
+  
+  #intro-popup h2 {
+    font-size: 20px;
+  }
+  
+  .minecraft-button {
+    font-size: 20px;
+    padding: 4px 8px;
+  }
+}
+
+.minecraft-button:hover {
+  background-color: #AAAAAA;
+}
+
+.minecraft-button:active {
+  box-shadow: inset -2px -4px #0004, inset 2px 2px #FFF5;
 }
