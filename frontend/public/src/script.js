@@ -13,7 +13,7 @@ import { initializeBlockInteractions } from './world/block_interactions.js';
 //--------------------------------------------------------------//
 const CLIENT_WORLD_CONFIG = {
     CHUNK_SIZE: 16, 
-    RENDER_DISTANCE: 3,
+    RENDER_DISTANCE: 1,
     MAX_REACH_DISTANCE: 5
 };
 
