@@ -175,8 +175,8 @@ const app = express();
 const server = http.createServer(app);
 
 const FRONTEND_URL = process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL || "https://minecraft-classic-theta.vercel.app"
-    : "http://localhost:8080";
+    ? (process.env.FRONTEND_URLS || "https://theata.pstepanov.work").split(',')
+    : ["http://localhost:8080"];
 
 const io = new Server(server, {
     cors: {
