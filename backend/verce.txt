@@ -1,0 +1,5 @@
+const FRONTEND_URL = process.env.NODE_ENV === 'production'
+    ? process.env.FRONTEND_URL || "https://minecraft-classic-theta.vercel.app"
+    : "http://localhost:8080";
+
+

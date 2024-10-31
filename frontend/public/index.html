@@ -19,38 +19,71 @@
   <div id="intro-popup">
     <button id="close-popup">&times;</button>
     <h2>Welcome to My Minecraft-like Game!</h2>
+    
     <p>Hi, I'm Pavel. This project is a Minecraft-inspired game built with Three.js and modern web technologies.</p>
-    <h5>Key features:</h5>
+    
+    <div class="update-banner">
+      <h4>What's New in v2.1:</h4>
+      <ul class="update-list">
+        <li>Enhanced Block Interaction: Improved raycasting for precise block removal</li>
+        <li>Real-time Player Orientation: Live updates of player movements</li>
+        <li>Enhanced Multiplayer: Modified blocks now sync instantly with other players</li>
+        <li>Performance Boost: Optimized terrain generation</li>
+        <li>New Features: Added trees and water to enhance world generation</li>
+      </ul>
+    </div>
+  
+    <h5>Key Features:</h5>
     <ul>
       <li>Procedurally generated terrain</li>
       <li>Multiplayer support</li>
       <li>Customizable world settings</li>
     </ul>
+  
     <h5>Game Modes:</h5>
     <ul>
       <li><strong>Online:</strong> Connect with others, sync world data</li>
       <li><strong>Offline:</strong> Play solo with local world generation</li>
     </ul>
     <p>The game automatically switches between modes based on server availability.</p>
+  
     <h5>Controls:</h5>
-    <ul>
-      <li><strong>WASD</strong> to move</li>
-      <li><strong>Space</strong> to jump</li>
-      <li><strong>Shift</strong> to crouch</li>
-      <li><strong>Mouse</strong> to look around</li>
-      <li><strong>Left Click</strong> to destroy blocks</li>
-      <li><strong>Right Click</strong> to place blocks</li>
-      <li><strong>f</strong> to fly</li>
-      <li><strong>N</strong> to show map</li>
-    </ul>
-    <h5>Learn more:</h5>
-    <a href="https://github.com/pstepanovum/minecraft-classic.git" target="_blank" class="minecraft-button">GitHub Repository</a>
-    <a href="https://lucky-quokka-0a7.notion.site/Web-Minecraft-Development-1133d74755a8807aadd0fe1890d31aad?pvs=4" target="_blank" class="minecraft-button">Project Documentation</a>
+    <div class="controls-grid">
+      <div class="controls-column">
+        <h6>Movement</h6>
+        <ul>
+          <li><strong>WASD</strong> to move</li>
+          <li><strong>Space</strong> to jump</li>
+          <li><strong>Shift</strong> to crouch</li>
+          <li><strong>F</strong> to fly</li>
+        </ul>
+      </div>
+      <div class="controls-column">
+        <h6>Interaction</h6>
+        <ul>
+          <li><strong>Mouse</strong> to look around</li>
+          <li><strong>Left Click</strong> to destroy blocks</li>
+          <li><strong>Right Click</strong> to place blocks</li>
+          <li><strong>N</strong> to show map</li>
+        </ul>
+      </div>
+    </div>
+  
+    <h5>Learn More:</h5>
+    <div class="button-container">
+      <a href="https://github.com/pstepanovum/minecraft-classic.git" target="_blank" class="minecraft-button">
+        GitHub Repository
+      </a>
+      <a href="https://lucky-quokka-0a7.notion.site/Web-Minecraft-Development-1133d74755a8807aadd0fe1890d31aad?pvs=4" 
+         target="_blank" 
+         class="minecraft-button">
+        Project Documentation
+      </a>
+    </div>
   </div>
+  
+  
   <span id="server-status"></span>
-  </div>
-  <div id="hud">
-    Health: <span id="health">100</span>
   </div>
   <div id="target"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

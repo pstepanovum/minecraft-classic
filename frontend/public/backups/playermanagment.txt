@@ -1,0 +1,39 @@
+class PlayerManagement {
+    constructor() {
+        this.otherPlayers = {};
+        this.player = null;
+    }
+
+    handlePlayerInfo(playerData) {
+        this.player = createPlayer(scene, playerData, true);
+        updateCamera(this.player.position);
+        isPlayerLoaded = true;
+        startGameIfReady();
+    }
+
+    handleNewPlayer(playerData) {
+        if (playerData.id !== socket.id) {
+            const newPlayer = createPlayer(scene, playerData, false);
+            this.otherPlayers[playerData.id] = newPlayer;
+        }
+    }
+
+    handlePlayerMove(playerData) {
+        if (playerData.id === socket.id) {
+            if (this.player) {
+                this.player.position.set(playerData.position.x, playerData.position.y, playerData.position.z);
+                updateCamera(this.player.position);
+            }
+        } else if (this.otherPlayers[playerData.id]) {
+            const otherPlayer = this.otherPlayers[playerData.id];
+            otherPlayer.position.set(playerData.position.x, playerData.position.y, playerData.position.z);
+        }
+    }
+
+    handlePlayerDisconnected(playerId) {
+        if (this.otherPlayers[playerId]) {
+            scene.remove(this.otherPlayers[playerId]);
+            delete this.otherPlayers[playerId];
+        }
+    }
+}

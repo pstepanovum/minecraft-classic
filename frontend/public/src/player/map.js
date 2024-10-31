@@ -1,3 +1,10 @@
+/**
+ * Creates a minimap for the given scene and player.
+ *
+ * @param {THREE.Scene} scene - The Three.js scene to render the minimap for.
+ * @param {THREE.Object3D} player - The player object whose position and rotation will be tracked on the minimap.
+ * @returns {Function} A function to update the minimap, which should be called on each frame.
+ */
 export function createMiniMap(scene, player) {
     const MINIMAP_SIZE = 250;
     const MINIMAP_PADDING = 20;
