@@ -1,27 +1,21 @@
-# Minecraft Classic Clone
+# Full Stack Development (Voxel Game)
 
-A browser-based Minecraft-like game built with Three.js for rendering and Socket.IO for multiplayer functionality. This project features a voxel-based world with terrain generation, player movement, and basic block manipulation.
+A browser-based Minecraft game built with Three.js for rendering and Socket.IO for multiplayer functionality. This project features a voxel-based world with terrain generation, player movement, and basic block manipulation.
 
-## 🌟 Project Milestones!!!
-
-### 🌟 1 Star - Basic Foundations
+### 🌟🌟 5 Stars - Core Gameplay Elements
+- [x] Implement optimized seed generation
+- [x] Add beautiful terrain generation with nature elements
+- [x] Implement block collision detection
+- [x] Allow players to add and remove blocks across the server
 - [x] Set up project structure (frontend/backend)
 - [x] Implement basic Three.js rendering
 - [x] Create simple cube-based world
-
-### 🌟🌟 5 Stars - Core Gameplay Elements
-- [ ] Implement optimized seed generation
-- [ ] Add beautiful terrain generation with nature elements
-- [ ] Implement block collision detection
-- [ ] Allow players to add and remove blocks across the server
-
-### 🌟🌟🌟 10 Stars - Enhanced World Generation
-- [ ] Add tree generation for terrain
-- [ ] Implement cave generation
-- [ ] Add water features to the world
+- [x] Add tree generation for terrain (Part)
+- [x] Implement cave generation (Part)
+- [x] Add water features to the world (Part)
+- [x] Implement player rotation visible to all connected players
 
 ### 🌟🌟🌟🌟 25 Stars - Player Interactions and UI
-- [ ] Implement player rotation visible to all connected players
 - [ ] Add a menu section with game settings
 - [ ] Implement player health system and physics-based damage (e.g., fall damage)
 
@@ -90,11 +84,13 @@ A browser-based Minecraft-like game built with Three.js for rendering and Socket
 1. Start the backend server:
    ```
    cd backend
+   npm install
    npm start
    ```
 2. In a new terminal, start the frontend server:
    ```
    cd frontend
+   npm install
    npm start
    ```
 3. Open your web browser and navigate to `http://localhost:8080` to play the game.
