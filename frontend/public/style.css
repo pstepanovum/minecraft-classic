@@ -8,11 +8,22 @@
   src: url('./font/Minecraftchmc-dBlX.ttf') format('truetype');
 }
 
-body { 
-  margin: 0; 
+html, body { 
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden; /* Prevent scrolling */
+  touch-action: manipulation; /* Prevent zoom on touch */
   font-family: 'Minecraft Bold', Arial, sans-serif; /* Set the default font */
 }
+
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block; /* Remove any default margins */
+}
+
 
 
 #target {

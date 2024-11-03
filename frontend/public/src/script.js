@@ -768,7 +768,62 @@ function setupEventListeners() {
 
 }
 
-window.addEventListener('load', init);
+window.addEventListener('load', () => {
+    init();
+
+    const canvas = document.querySelector('canvas'); // Assuming your game is rendered on a canvas element
+
+    function requestFullscreen() {
+        if (canvas.requestFullscreen) {
+            canvas.requestFullscreen();
+        } else if (canvas.mozRequestFullScreen) { // Firefox
+            canvas.mozRequestFullScreen();
+        } else if (canvas.webkitRequestFullscreen) { // Chrome, Safari and Opera
+            canvas.webkitRequestFullscreen();
+        } else if (canvas.msRequestFullscreen) { // IE/Edge
+            canvas.msRequestFullscreen();
+        }
+    }
+
+    function onWindowResize() {
+        if (document.fullscreenElement) {
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+        } else {
+            canvas.style.width = '';
+            canvas.style.height = '';
+        }
+    }
+
+    // Automatically request fullscreen on load
+    requestFullscreen();
+
+    // Adjust canvas size when entering or exiting fullscreen
+    document.addEventListener('fullscreenchange', onWindowResize);
+    document.addEventListener('mozfullscreenchange', onWindowResize);
+    document.addEventListener('webkitfullscreenchange', onWindowResize);
+    document.addEventListener('msfullscreenchange', onWindowResize);
+
+    // Prevent zoom on double-tap
+    document.addEventListener('touchstart', function(event) {
+        if (event.touches.length > 1) {
+            event.preventDefault();
+        }
+    }, { passive: false });
+
+    // Prevent zoom on double-click
+    document.addEventListener('dblclick', function(event) {
+        event.preventDefault();
+    }, { passive: false });
+
+    // Hide the address bar on mobile devices
+    window.scrollTo(0, 1);
+    window.addEventListener('resize', () => {
+        setTimeout(() => {
+            window.scrollTo(0, 1);
+        }, 0);
+    });
+});
 
 export {
     CLIENT_WORLD_CONFIG,
