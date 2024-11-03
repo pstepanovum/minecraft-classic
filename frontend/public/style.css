@@ -373,14 +373,13 @@ canvas {
   justify-items: center;
   align-items: center;
 }
-
 #right-controls {
   position: fixed;
   bottom: 20%; /* Increased from 10% to 20% */
   right: 10%;
   display: none; /* Hide by default */
   grid-template-columns: 50px;
-  grid-template-rows: repeat(2, 50px);
+  grid-template-rows: repeat(3, 50px); /* Adjusted to 3 rows */
   gap: 5px;
   justify-items: center;
   align-items: center;
@@ -409,7 +408,7 @@ canvas {
 }
 
 /* Media query to show controls only on small screens */
-@media (max-width: 1200px) {
+@media (max-width: 1500px) {
   #left-controls, #right-controls {
     display: grid; /* Show on small screens */
   }
