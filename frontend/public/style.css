@@ -384,6 +384,7 @@ canvas {
   justify-items: center;
   align-items: center;
 }
+
 .control-button {
   width: 50px;
   height: 50px;
@@ -397,7 +398,6 @@ canvas {
   align-items: center;
   touch-action: manipulation; /* Prevent zoom on touch */
 }
-
 .control-button i {
   font-size: 24px; /* Adjust icon size */
 }
@@ -406,45 +406,9 @@ canvas {
   background-color: rgba(255, 255, 0, 0.5); /* Highlight color */
 }
 
-/* Media query to show controls only on iPad and smaller screens */
-@media (max-width: 1200px) {
+/* Media query to show controls only on small screens */
+@media (max-width: 1500px) {
   #left-controls, #right-controls {
-    display: grid; /* Show on iPad and smaller screens */
-  }
-
-  .control-button {
-    width: 60px;
-    height: 60px;
-    font-size: 28px;
-  }
-
-  .control-button i {
-    font-size: 28px;
-  }
-}
-
-/* Adjust button size for smaller screens */
-@media (max-width: 768px) {
-  .control-button {
-    width: 50px;
-    height: 50px;
-    font-size: 24px;
-  }
-
-  .control-button i {
-    font-size: 24px;
-  }
-}
-
-/* Adjust button size for extra-small screens */
-@media (max-width: 480px) {
-  .control-button {
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-  }
-
-  .control-button i {
-    font-size: 20px;
+    display: grid; /* Show on small screens */
   }
 }
