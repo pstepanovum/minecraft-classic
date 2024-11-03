@@ -241,6 +241,18 @@ async function init() {
         
         updateLoadingMessage('Setting up event listeners...');
         setupEventListeners();
+        
+        // Add CSS to disable text selection
+        const style = document.createElement('style');
+        style.innerHTML = `
+            * {
+                user-select: none;
+                -webkit-user-select: none;
+                -moz-user-select: none;
+                -ms-user-select: none;
+            }
+        `;
+        document.head.appendChild(style);
     
         updateLoadingMessage('Loading textures...');
         try {
