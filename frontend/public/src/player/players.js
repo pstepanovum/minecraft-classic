@@ -237,7 +237,6 @@ function createPlayerParts(material) {
 
     return playerParts;
 }
-
 export function addPlayerControls(player, camera, scene, canvas) {
     const controls = {
         forward: false,
@@ -259,6 +258,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
     let lastTouchX = 0;
     let lastTouchY = 0;
+    let isPointerLocked = false;
 
     function handleKeyEvent(event, isKeyDown) {
         const key = event.key.toLowerCase();
@@ -274,9 +274,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
             'control': 'sneak'
         };
 
-        if (key === 'shift') {
-            controls.sprint = isKeyDown;
-        } else if (keyMap[key]) {
+        if (keyMap[key]) {
             controls[keyMap[key]] = isKeyDown;
         }
 
@@ -342,11 +340,11 @@ export function addPlayerControls(player, camera, scene, canvas) {
         isPointerLocked = document.pointerLockElement === canvas;
     }
 
-    canvas.addEventListener('click', () => canvas.requestPointerLock());
+    document.addEventListener('touchstart', onTouchStart);
+    document.addEventListener('touchmove', onTouchMove);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('touchstart', onTouchStart);
-    canvas.addEventListener('touchmove', onTouchMove);
+    canvas.addEventListener('click', () => canvas.requestPointerLock());
 
     function updatePlayerMovement() {
         const isSprinting = controls.sprint;
@@ -361,7 +359,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
             currentSpeed = SNEAK_SPEED;
         }
 
-        moveVector.set(
+        const moveVector = new THREE.Vector3(
             (controls.right ? 1 : 0) - (controls.left ? 1 : 0),
             0,
             (controls.backward ? 1 : 0) - (controls.forward ? 1 : 0)
@@ -375,13 +373,13 @@ export function addPlayerControls(player, camera, scene, canvas) {
             moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
         }
 
-        newPosition.copy(player.position).add(moveVector);
+        const newPosition = player.position.clone().add(moveVector);
         const collisionResult = checkCollision(newPosition, scene, player);
         if (!collisionResult.collides) {
             player.position.copy(newPosition);
         } else {
-            slideVector.copy(moveVector).projectOnPlane(collisionResult.normal);
-            slidePosition.copy(player.position).add(slideVector);
+            const slideVector = moveVector.clone().projectOnPlane(collisionResult.normal);
+            const slidePosition = player.position.clone().add(slideVector);
             if (!checkCollision(slidePosition, scene, player).collides) {
                 player.position.copy(slidePosition);
             }
