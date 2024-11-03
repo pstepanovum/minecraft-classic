@@ -237,7 +237,6 @@ function createPlayerParts(material) {
 
     return playerParts;
 }
-
 export function addPlayerControls(player, camera, scene, canvas) {
     const controls = {
         forward: false,
@@ -257,17 +256,6 @@ export function addPlayerControls(player, camera, scene, canvas) {
     player.isFlying = false;
     player.collisionsEnabled = true;
 
-    let lastTouchX = 0;
-    let lastTouchY = 0;
-    let isPointerLocked = false;
-
-    const keyToButtonMap = {
-        'w': 'up',
-        'a': 'left',
-        's': 'down',
-        'd': 'right'
-    };
-
     function handleKeyEvent(event, isKeyDown) {
         const key = event.key.toLowerCase();
         const keyMap = {
@@ -286,17 +274,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
             controls[keyMap[key]] = isKeyDown;
         }
 
-        if (keyToButtonMap[key]) {
-            const button = document.getElementById(keyToButtonMap[key]);
-            if (button) {
-                if (isKeyDown) {
-                    button.classList.add('highlight');
-                } else {
-                    button.classList.remove('highlight');
-                }
-            }
-        }
-
+        // Handle toggle controls for flying and collision
         if (isKeyDown) {
             switch (key) {
                 case 'f':
@@ -363,17 +341,6 @@ export function addPlayerControls(player, camera, scene, canvas) {
     document.addEventListener('touchmove', onTouchMove);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('click', () => canvas.requestPointerLock());
-
-    // Add event listeners for touch controls
-    document.getElementById('up').addEventListener('touchstart', () => controls.forward = true);
-    document.getElementById('up').addEventListener('touchend', () => controls.forward = false);
-    document.getElementById('down').addEventListener('touchstart', () => controls.backward = true);
-    document.getElementById('down').addEventListener('touchend', () => controls.backward = false);
-    document.getElementById('left').addEventListener('touchstart', () => controls.left = true);
-    document.getElementById('left').addEventListener('touchend', () => controls.left = false);
-    document.getElementById('right').addEventListener('touchstart', () => controls.right = true);
-    document.getElementById('right').addEventListener('touchend', () => controls.right = false);
 
     function updatePlayerMovement() {
         const isSprinting = controls.sprint;
