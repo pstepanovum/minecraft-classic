@@ -278,6 +278,7 @@ class BlockInteractionManager {
         this.handleKeyDown = (e) => e.key.toLowerCase() === 'q' && this.tryRemoveBlock();
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
+        this.handleTouchStart = this.handleTouchStart.bind(this);
 
         this.highlighter = new BlockHighlighter(scene);
         
@@ -288,6 +289,7 @@ class BlockInteractionManager {
         document.addEventListener('keydown', this.handleKeyDown);
         document.addEventListener('mousedown', this.handleMouseDown);
         document.addEventListener('mouseup', this.handleMouseUp);
+        document.addEventListener('touchstart', this.handleTouchStart);
         document.addEventListener('contextmenu', (e) => {
             document.pointerLockElement === document.querySelector('canvas') && e.preventDefault();
         });
@@ -300,6 +302,12 @@ class BlockInteractionManager {
             this.tryRemoveBlock();
         } else if (event.button === 2) {
             this.tryPlaceBlock();
+        }
+    }
+
+    handleTouchStart(event) {
+        if (event.touches.length === 1) {
+            this.tryRemoveBlock();
         }
     }
 
@@ -539,6 +547,7 @@ class BlockInteractionManager {
         document.removeEventListener('keydown', this.handleKeyDown);
         document.removeEventListener('mousedown', this.handleMouseDown);
         document.removeEventListener('mouseup', this.handleMouseUp);
+        document.removeEventListener('touchstart', this.handleTouchStart);
         this.highlighter.dispose();
     }
 }
