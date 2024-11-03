@@ -24,7 +24,7 @@ const DEFAULT_PLAYER_DATA = {
     collisionsEnabled: true
 };
 
-const MAX_INSTANCES = CLIENT_WORLD_CONFIG.CHUNK_SIZE ** 3;
+const MAX_INSTANCES = (CLIENT_WORLD_CONFIG.CHUNK_SIZE) ** 3;
 
 //--------------------------------------------------------------//
 //                          Scene Elements

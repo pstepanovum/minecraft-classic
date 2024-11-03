@@ -24,7 +24,7 @@ export class Texture {
             return null;
         }
     
-        // Update frustum based on the camera
+        // Update frustum based on camera
         if (this.camera) {
             const cameraViewProjectionMatrix = new THREE.Matrix4();
             cameraViewProjectionMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
@@ -33,8 +33,29 @@ export class Texture {
     
         const chunkGroup = new THREE.Group();
         chunkGroup.name = `${chunkX},${chunkY},${chunkZ}`;
+    
         const instances = this.createInstancedMeshes();
-        const instanceCounts = this.processChunkData(chunk, chunkX, chunkY, chunkZ, instances);
+        const instanceCounts = {};
+    
+        for (let i = 0; i < chunk.length; i++) {
+            const blockType = chunk[i];
+            if (blockType !== BlockType.AIR && instances[blockType]) {
+                const [x, y, z] = this.calculateBlockPosition(i);
+                const worldPosition = this.calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ);
+    
+                // Skip block if it’s outside the camera's frustum
+                if (this.camera && !this.frustum.containsPoint(new THREE.Vector3(...worldPosition))) {
+                    continue;
+                }
+    
+                // Proceed if the block is visible and in the frustum
+                if (this.isBlockVisible(chunk, x, y, z)) {
+                    this.matrix.setPosition(...worldPosition);
+                    instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, this.matrix);
+                    instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
+                }
+            }
+        }
     
         // Finalize and add the chunk mesh to the scene if there are visible blocks
         this.finalizeChunkMeshes(instances, instanceCounts, chunkGroup);
@@ -82,7 +103,7 @@ export class Texture {
         };
     
         // Ensure MAX_INSTANCES is within a reasonable range
-        const MAX_SAFE_INSTANCES = 10000; // Adjust this value based on your application's needs
+        const MAX_SAFE_INSTANCES = 100000; // Adjust this value based on your application's needs
         if (this.MAX_INSTANCES > MAX_SAFE_INSTANCES) {
             console.warn(`MAX_INSTANCES (${this.MAX_INSTANCES}) exceeds safe limit (${MAX_SAFE_INSTANCES}). Limiting to ${MAX_SAFE_INSTANCES}.`);
             this.MAX_INSTANCES = MAX_SAFE_INSTANCES;

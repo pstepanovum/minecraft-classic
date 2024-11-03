@@ -261,24 +261,37 @@ class BlockInteractionManager {
         // Existing properties
         this.camera = camera;
         this.player = null;
-    
         this.raycaster = new Raycaster();
         this.inventory = new Inventory();
         
-        // Add properties for continuous placement
+        // Add properties for continuous placement and removal
         this.isRightMouseDown = false;
         this.isLeftMouseDown = false;
+        this.isTouchPlacing = false;
+        this.isTouchRemoving = false;
         this.lastPlaceTime = 0;
-        this.placeInterval = 350; // Minimum time (ms) between block placements
-        this.initialClickDelay = 350; // Delay before continuous action starts
+        this.lastRemoveTime = 0;
+        this.placeInterval = 200;
+        this.removeInterval = 50;
+        this.initialClickDelay = 200;
         this.rightMouseDownTime = 0;
         this.leftMouseDownTime = 0;
+        this.touchStartTime = 0;
+        this.touchStartPosition = null;
+        this.longPressTimeout = null;
+        this.longPressDuration = 200; // Time in ms to trigger long press
+        this.touchMoveTolerance = 10; // Pixels allowed to move before canceling long press
         
         // Bind methods
         this.handleKeyDown = (e) => e.key.toLowerCase() === 'q' && this.tryRemoveBlock();
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
         this.handleTouchStart = this.handleTouchStart.bind(this);
+        this.handleTouchMove = this.handleTouchMove.bind(this);
+        this.handleTouchEnd = this.handleTouchEnd.bind(this);
+        this.handleCanvasTouchStart = this.handleCanvasTouchStart.bind(this);
+        this.handleCanvasTouchMove = this.handleCanvasTouchMove.bind(this);
+        this.handleCanvasTouchEnd = this.handleCanvasTouchEnd.bind(this);
 
         this.highlighter = new BlockHighlighter(scene);
         
@@ -286,28 +299,28 @@ class BlockInteractionManager {
     }
 
     initializeEventListeners() {
+        // Existing event listeners
         document.addEventListener('keydown', this.handleKeyDown);
         document.addEventListener('mousedown', this.handleMouseDown);
         document.addEventListener('mouseup', this.handleMouseUp);
-        document.addEventListener('touchstart', this.handleTouchStart);
         document.addEventListener('contextmenu', (e) => {
             document.pointerLockElement === document.querySelector('canvas') && e.preventDefault();
         });
-    }
 
-    handleMouseClick(event) {
-        if (document.pointerLockElement !== document.querySelector('canvas')) return;
-        
-        if (event.button === 0) {
-            this.tryRemoveBlock();
-        } else if (event.button === 2) {
-            this.tryPlaceBlock();
+        // Add touch event listeners for the place button
+        const placeButton = document.getElementById('place');
+        if (placeButton) {
+            placeButton.addEventListener('touchstart', this.handleTouchStart);
+            placeButton.addEventListener('touchmove', this.handleTouchMove);
+            placeButton.addEventListener('touchend', this.handleTouchEnd);
         }
-    }
 
-    handleTouchStart(event) {
-        if (event.touches.length === 1) {
-            this.tryRemoveBlock();
+        // Add touch event listeners for the canvas
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+            canvas.addEventListener('touchstart', this.handleCanvasTouchStart);
+            canvas.addEventListener('touchmove', this.handleCanvasTouchMove);
+            canvas.addEventListener('touchend', this.handleCanvasTouchEnd);
         }
     }
 
@@ -399,7 +412,6 @@ class BlockInteractionManager {
         this.updateBlock(position, 0, true);
     }
 
-    
     tryPlaceBlock() {
         const hit = this.castRay();
         if (!hit) {
@@ -498,15 +510,20 @@ class BlockInteractionManager {
         
         const now = Date.now();
         
-        // Handle continuous block placement/removal with initial delay
-        if (this.isRightMouseDown) {
-            if (now - this.rightMouseDownTime >= this.initialClickDelay && now - this.lastPlaceTime >= this.placeInterval) {
+        // Handle continuous block placement for both mouse and touch
+        if (this.isRightMouseDown || this.isTouchPlacing) {
+            const startTime = this.isRightMouseDown ? this.rightMouseDownTime : this.touchStartTime;
+            if (now - startTime >= this.initialClickDelay && now - this.lastPlaceTime >= this.placeInterval) {
                 this.tryPlaceBlock();
             }
         }
-        if (this.isLeftMouseDown) {
-            if (now - this.leftMouseDownTime >= this.initialClickDelay && now - this.lastPlaceTime >= this.placeInterval) {
+        
+        // Handle continuous block removal for both mouse and touch
+        if (this.isLeftMouseDown || this.isTouchRemoving) {
+            const startTime = this.isLeftMouseDown ? this.leftMouseDownTime : this.touchStartTime;
+            if (now - startTime >= this.initialClickDelay && now - this.lastRemoveTime >= this.removeInterval) {
                 this.tryRemoveBlock();
+                this.lastRemoveTime = now;
             }
         }
         
@@ -517,6 +534,86 @@ class BlockInteractionManager {
             }
         } else {
             this.lastTargetBlock = null;
+        }
+    }
+
+    //----------------------------------------------
+    //         Handle (Clicks/Touch)
+    //----------------------------------------------
+    handleTouchStart(event) {
+        event.preventDefault();
+        this.isTouchPlacing = true;
+        this.touchStartTime = Date.now();
+        this.tryPlaceBlock();
+    
+        // Add highlight to the place button
+        const placeButton = document.getElementById('place');
+        if (placeButton) {
+            placeButton.classList.add('highlight');
+            setTimeout(() => placeButton.classList.remove('highlight'), 200); // Brief highlight for feedback
+        }
+    }
+
+    handleTouchMove(event) {
+        event.preventDefault();
+    }
+
+    handleTouchEnd(event) {
+        event.preventDefault();
+        this.isTouchPlacing = false;
+    }
+
+    handleCanvasTouchStart(event) {
+        if (event.target.tagName.toLowerCase() === 'canvas') {
+            event.preventDefault();
+            const touch = event.touches[0];
+            this.touchStartPosition = { x: touch.clientX, y: touch.clientY };
+            this.touchStartTime = Date.now();
+
+            // Set up long press timer
+            this.longPressTimeout = setTimeout(() => {
+                if (this.touchStartPosition) {
+                    this.isTouchRemoving = true;
+                    this.tryRemoveBlock();
+                }
+            }, this.longPressDuration);
+        }
+    }
+
+    handleCanvasTouchMove(event) {
+        if (this.touchStartPosition) {
+            const touch = event.touches[0];
+            const deltaX = touch.clientX - this.touchStartPosition.x;
+            const deltaY = touch.clientY - this.touchStartPosition.y;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            // If moved too far, cancel long press
+            if (distance > this.touchMoveTolerance) {
+                this.cancelLongPress();
+            }
+        }
+    }
+
+    handleCanvasTouchEnd(event) {
+        this.cancelLongPress();
+        this.isTouchRemoving = false;
+        this.touchStartPosition = null;
+    }
+
+    cancelLongPress() {
+        if (this.longPressTimeout) {
+            clearTimeout(this.longPressTimeout);
+            this.longPressTimeout = null;
+        }
+    }
+
+    handleMouseClick(event) {
+        if (document.pointerLockElement !== document.querySelector('canvas')) return;
+        
+        if (event.button === 0) {
+            this.tryRemoveBlock();
+        } else if (event.button === 2) {
+            this.tryPlaceBlock();
         }
     }
 
@@ -547,7 +644,22 @@ class BlockInteractionManager {
         document.removeEventListener('keydown', this.handleKeyDown);
         document.removeEventListener('mousedown', this.handleMouseDown);
         document.removeEventListener('mouseup', this.handleMouseUp);
-        document.removeEventListener('touchstart', this.handleTouchStart);
+        
+        const placeButton = document.getElementById('place');
+        if (placeButton) {
+            placeButton.removeEventListener('touchstart', this.handleTouchStart);
+            placeButton.removeEventListener('touchmove', this.handleTouchMove);
+            placeButton.removeEventListener('touchend', this.handleTouchEnd);
+        }
+
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+            canvas.removeEventListener('touchstart', this.handleCanvasTouchStart);
+            canvas.removeEventListener('touchmove', this.handleCanvasTouchMove);
+            canvas.removeEventListener('touchend', this.handleCanvasTouchEnd);
+        }
+        
+        this.cancelLongPress();
         this.highlighter.dispose();
     }
 }

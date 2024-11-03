@@ -21,6 +21,7 @@ let lastTargetBlock = null;
 
 
 
+
 // Reusable vectors
 const moveVector = new THREE.Vector3();
 const newPosition = new THREE.Vector3();
@@ -438,16 +439,6 @@ export function addPlayerControls(player, camera, scene, canvas) {
     });
     document.getElementById('jump').addEventListener('touchstart', handleTouchStart('jump', 'jump'));
     document.getElementById('jump').addEventListener('touchend', handleTouchEnd('jump', 'jump'));
-    document.getElementById('place').addEventListener('touchstart', (event) => {
-        const blockInteractionManager = new BlockInteractionManager();
-        blockInteractionManager.tryPlaceBlock();
-        const button = document.getElementById('place');
-        if (button) {
-            button.classList.add('highlight');
-            setTimeout(() => button.classList.remove('highlight'), 200); // Brief highlight for feedback
-        }
-        event.preventDefault(); // Prevent default zoom behavior
-    });
 
     function updatePlayerMovement() {
         const isSprinting = controls.sprint;
@@ -499,6 +490,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
     return updatePlayerMovement;
 }
+
 
 function applyMovementWithCollision(player, moveVector, scene) {
     // Y-axis movement
