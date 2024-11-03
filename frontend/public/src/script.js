@@ -768,6 +768,20 @@ function setupEventListeners() {
 
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+    const closeButton = document.getElementById('close-popup');
+    const introPopup = document.getElementById('intro-popup');
+
+    closeButton.addEventListener('click', () => {
+        introPopup.style.display = 'none';
+    });
+
+    closeButton.addEventListener('touchstart', (event) => {
+        introPopup.style.display = 'none';
+        event.preventDefault(); // Prevent default behavior
+    });
+});
+
 window.addEventListener('load', () => {
     init();
 
