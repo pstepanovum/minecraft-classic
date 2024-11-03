@@ -157,7 +157,7 @@ body {
   z-index: 1002;
   max-width: 60%;
   max-height: 80vh;
-  overflow-y: auto;
+  overflow-y: auto; /* Allow vertical scrolling */
   text-align: center;
   box-shadow: inset -2px -4px #0006, inset 2px 2px #FFF7;
   padding: 40px;
@@ -351,7 +351,29 @@ body {
     font-size: 20px;
   }
 }
+#left-controls {
+  position: fixed;
+  bottom: 20%; /* Increased from 10% to 20% */
+  left: 10%;
+  display: none; /* Hide by default */
+  grid-template-columns: repeat(3, 50px);
+  grid-template-rows: repeat(2, 50px);
+  gap: 5px;
+  justify-items: center;
+  align-items: center;
+}
 
+#right-controls {
+  position: fixed;
+  bottom: 20%; /* Increased from 10% to 20% */
+  right: 10%;
+  display: none; /* Hide by default */
+  grid-template-columns: 50px;
+  grid-template-rows: repeat(2, 50px);
+  gap: 5px;
+  justify-items: center;
+  align-items: center;
+}
 
 .control-button {
   width: 50px;
@@ -361,20 +383,22 @@ body {
   color: white;
   border: none;
   border-radius: 5px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.control-button i {
+  font-size: 24px; /* Adjust icon size */
 }
 
 .control-button.highlight {
   background-color: rgba(255, 255, 0, 0.5); /* Highlight color */
 }
 
-
-
 /* Media query to show controls only on small screens */
-@media (max-width: 768px) {
-  #controls {
+@media (max-width: 1200px) {
+  #left-controls, #right-controls {
     display: grid; /* Show on small screens */
   }
 }
-
-
-
