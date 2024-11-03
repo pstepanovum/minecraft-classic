@@ -5,7 +5,7 @@ const JUMP_SPEED = 0.15;
 const GRAVITY = 0.008;
 const TERMINAL_VELOCITY = -3;
 
-const WALK_SPEED = 0.0697;
+const WALK_SPEED = 0.0797;
 const SPRINT_SPEED = 0.112;
 const SNEAK_SPEED = 0.03;
 const FLY_SPEED = 1.5;
