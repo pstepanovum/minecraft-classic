@@ -257,9 +257,8 @@ export function addPlayerControls(player, camera, scene, canvas) {
     player.isFlying = false;
     player.collisionsEnabled = true;
 
-    let lastTouchX = 0;
-    let lastTouchY = 0;
     let isPointerLocked = false;
+    const touchPoints = {};
 
     const keyToButtonMap = {
         'w': 'up',
@@ -335,26 +334,52 @@ export function addPlayerControls(player, camera, scene, canvas) {
     }
 
     function onTouchStart(event) {
-        if (event.touches.length === 1) {
-            lastTouchX = event.touches[0].clientX;
-            lastTouchY = event.touches[0].clientY;
+        for (let i = 0; i < event.touches.length; i++) {
+            const touch = event.touches[i];
+            touchPoints[touch.identifier] = {
+                startX: touch.clientX,
+                startY: touch.clientY,
+                currentX: touch.clientX,
+                currentY: touch.clientY
+            };
         }
         event.preventDefault(); // Prevent default zoom behavior
     }
 
     function onTouchMove(event) {
-        if (event.touches.length === 1) {
-            const touch = event.touches[0];
-            const deltaX = touch.clientX - lastTouchX;
-            const deltaY = touch.clientY - lastTouchY;
+        for (let i = 0; i < event.touches.length; i++) {
+            const touch = event.touches[i];
+            const point = touchPoints[touch.identifier];
+            if (point) {
+                const deltaX = touch.clientX - point.currentX;
+                const deltaY = touch.clientY - point.currentY;
 
-            player.yaw -= deltaX * MOUSE_LOOK_SENSITIVITY;
-            player.pitch -= deltaY * MOUSE_LOOK_SENSITIVITY;
-            player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
-            updateCameraRotation();
+                // Determine if the touch point is for rotation or movement
+                if (touch.target.classList.contains('control-button')) {
+                    // Handle movement
+                    if (touch.target.id === 'up') controls.forward = true;
+                    if (touch.target.id === 'down') controls.backward = true;
+                    if (touch.target.id === 'left') controls.left = true;
+                    if (touch.target.id === 'right') controls.right = true;
+                } else {
+                    // Handle rotation
+                    player.yaw -= deltaX * MOUSE_LOOK_SENSITIVITY;
+                    player.pitch -= deltaY * MOUSE_LOOK_SENSITIVITY;
+                    player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+                    updateCameraRotation();
+                }
 
-            lastTouchX = touch.clientX;
-            lastTouchY = touch.clientY;
+                point.currentX = touch.clientX;
+                point.currentY = touch.clientY;
+            }
+        }
+        event.preventDefault(); // Prevent default zoom behavior
+    }
+
+    function onTouchEnd(event) {
+        for (let i = 0; i < event.changedTouches.length; i++) {
+            const touch = event.changedTouches[i];
+            delete touchPoints[touch.identifier];
         }
         event.preventDefault(); // Prevent default zoom behavior
     }
@@ -365,6 +390,8 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
     document.addEventListener('touchstart', onTouchStart);
     document.addEventListener('touchmove', onTouchMove);
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('click', () => canvas.requestPointerLock());
