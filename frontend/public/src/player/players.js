@@ -368,20 +368,38 @@ export function addPlayerControls(player, camera, scene, canvas) {
     canvas.addEventListener('click', () => canvas.requestPointerLock());
 
     // Add event listeners for touch controls
-    document.getElementById('up').addEventListener('touchstart', () => controls.forward = true);
-    document.getElementById('up').addEventListener('touchend', () => controls.forward = false);
-    document.getElementById('down').addEventListener('touchstart', () => controls.backward = true);
-    document.getElementById('down').addEventListener('touchend', () => controls.backward = false);
-    document.getElementById('left').addEventListener('touchstart', () => controls.left = true);
-    document.getElementById('left').addEventListener('touchend', () => controls.left = false);
-    document.getElementById('right').addEventListener('touchstart', () => controls.right = true);
-    document.getElementById('right').addEventListener('touchend', () => controls.right = false);
-    document.getElementById('fly').addEventListener('touchstart', () => {
-        player.isFlying = !player.isFlying;
-        console.log(`Fly mode ${player.isFlying ? 'enabled' : 'disabled'}`);
-    });
-    document.getElementById('jump').addEventListener('touchstart', () => controls.jump = true);
-    document.getElementById('jump').addEventListener('touchend', () => controls.jump = false);
+    function handleTouchStart(buttonId, controlKey) {
+        return () => {
+            controls[controlKey] = true;
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.classList.add('highlight');
+            }
+        };
+    }
+
+    function handleTouchEnd(buttonId, controlKey) {
+        return () => {
+            controls[controlKey] = false;
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.classList.remove('highlight');
+            }
+        };
+    }
+
+    document.getElementById('up').addEventListener('touchstart', handleTouchStart('up', 'forward'));
+    document.getElementById('up').addEventListener('touchend', handleTouchEnd('up', 'forward'));
+    document.getElementById('down').addEventListener('touchstart', handleTouchStart('down', 'backward'));
+    document.getElementById('down').addEventListener('touchend', handleTouchEnd('down', 'backward'));
+    document.getElementById('left').addEventListener('touchstart', handleTouchStart('left', 'left'));
+    document.getElementById('left').addEventListener('touchend', handleTouchEnd('left', 'left'));
+    document.getElementById('right').addEventListener('touchstart', handleTouchStart('right', 'right'));
+    document.getElementById('right').addEventListener('touchend', handleTouchEnd('right', 'right'));
+    document.getElementById('fly').addEventListener('touchstart', handleTouchStart('fly', 'up'));
+    document.getElementById('fly').addEventListener('touchend', handleTouchEnd('fly', 'up'));
+    document.getElementById('jump').addEventListener('touchstart', handleTouchStart('jump', 'jump'));
+    document.getElementById('jump').addEventListener('touchend', handleTouchEnd('jump', 'jump'));
 
     function updatePlayerMovement() {
         const isSprinting = controls.sprint;
