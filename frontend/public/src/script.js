@@ -12,9 +12,8 @@ import { initializeBlockInteractions } from './world/block_interactions.js';
 //                              Constants
 //--------------------------------------------------------------//
 const CLIENT_WORLD_CONFIG = {
-    CHUNK_SIZE: 16, 
+    CHUNK_SIZE: 32, 
     RENDER_DISTANCE: 1,
-    MAX_REACH_DISTANCE: 5
 };
 
 const DEFAULT_PLAYER_DATA = {
@@ -39,6 +38,8 @@ let player;
 let playerControls = null;
 const otherPlayers = {};
 let blockManager;
+// Add new state tracking
+let areSchematicsLoaded = false;
 
 //--------------------------------------------------------------//
 //                      Texture Management
@@ -124,7 +125,6 @@ function initWebWorker() {
             case 'chunkGenerated':
             case 'chunkUpdated':
                 const { chunk, chunkX, chunkY, chunkZ } = e.data;
-                // console.log(`Received chunk data for ${chunkX},${chunkY},${chunkZ}`);
                 if (chunkManager) {
                     chunkManager.handleChunkData(chunk, chunkX, chunkY, chunkZ);
                 } else {
@@ -143,7 +143,7 @@ function initWebWorker() {
         server_config: worldConfig,
         client_config: CLIENT_WORLD_CONFIG,
         seed: worldConfig?.SEED || Date.now(),
-        block_type: BlockType
+        block_type: BlockType,
     };
 
     console.log('Initializing worker with config:', workerConfig);
@@ -154,7 +154,6 @@ function initWebWorker() {
     }
 }
 
-// In your script.js
 function handleWorldInfo(data) {
     // Clear existing state
     CHUNK.clear();
@@ -206,7 +205,7 @@ function handleWorldInfo(data) {
 }
 
 function startGameIfReady() {
-    if (isTexturesLoaded && isPlayerLoaded) {
+    if (isTexturesLoaded && isPlayerLoaded && areSchematicsLoaded) {
         console.log('Starting game...');
         try {
             if (!chunkManager) {
@@ -228,48 +227,63 @@ function startGameIfReady() {
 //--------------------------------------------------------------//
 //                       Initialization
 //--------------------------------------------------------------//
+
 async function init() {
-    createLoadingScreen();
-    createStatusBar();
-    
-    updateLoadingMessage('Setting up the scene...');
-    setupScene();
-    
-    updateLoadingMessage('Configuring lighting...');
-    setupLighting();
-    
-    updateLoadingMessage('Setting up event listeners...');
-    setupEventListeners();
-
-    updateLoadingMessage('Loading textures...');
     try {
-        await textureManager.loadTextureAtlas('./images/texture-pack/texture-atlas.png');
-        console.log('Textures loaded successfully');
-        isTexturesLoaded = true;
-    } catch (error) {
-        console.error('Failed to load textures:', error);
-    }
-
-    updateLoadingMessage('Checking server connection...');
-    const serverAvailable = await checkServerStatus();
+        createLoadingScreen();
+        createStatusBar();
+        
+        updateLoadingMessage('Setting up the scene...');
+        setupScene();
+        
+        updateLoadingMessage('Configuring lighting...');
+        setupLighting();
+        
+        updateLoadingMessage('Setting up event listeners...');
+        setupEventListeners();
     
-    if (serverAvailable) {
-        updateLoadingMessage('Connecting to server...');
-        await setupSocketConnection();
-        await requestWorldInfo();
-    } else {
-        console.log("Server unavailable. Starting in offline mode...");
-        updateLoadingMessage('Starting in offline mode...');
-        startOfflineMode();
-    }
-
-    updateLoadingMessage('Preparing the world...');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    removeLoadingScreen();
+        updateLoadingMessage('Loading textures...');
+        try {
+            await textureManager.loadTextureAtlas('./images/texture-pack/texture-atlas.png');
+            console.log('Textures loaded successfully');
+            isTexturesLoaded = true;
+        } catch (error) {
+            console.error('Failed to load textures:', error);
+        }
     
-    startGameIfReady();
-
-    setTimeout(showIntroPopup, 1000);
+        updateLoadingMessage('Checking server connection...');
+        const serverAvailable = await checkServerStatus();
+        
+        if (serverAvailable) {
+            updateLoadingMessage('Connecting to server...');
+            await setupSocketConnection();
+            await requestWorldInfo();
+        } else {
+            console.log("Server unavailable. Starting in offline mode...");
+            updateLoadingMessage('Starting in offline mode...');
+            startOfflineMode();
+        }
+    
+        // Initialize web worker first
+        updateLoadingMessage('Initializing world generator...');
+        initWebWorker();
+    
+        // Wait a moment for worker to initialize
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        areSchematicsLoaded = true;
+    
+        updateLoadingMessage('Preparing the world...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        removeLoadingScreen();
+        
+        startGameIfReady();
+        setTimeout(showIntroPopup, 1000);
+    }
+    catch (error) {
+        console.error('Initialization failed:', error);
+        updateLoadingMessage('Failed to initialize game');
+    }
 }
 
 function startOfflineMode() {
@@ -350,7 +364,23 @@ function handlePlayerDisconnected(playerId) {
 }
 
 export function spawn(x, z) {
-    return 60;
+    // Calculate spawn position based on world size
+    const worldSize = WORLD_CONFIG_OFFLINE.SIZE;
+    
+    // Default spawn position at the center of the world
+    const defaultSpawnX = worldSize / 2
+    const defaultSpawnZ = worldSize / 2
+    const groundLevel = Math.ceil(80) + 0.5; // Base ground level aligned with blocks
+
+    // If specific coordinates are provided, use them instead
+    const spawnX = defaultSpawnX;
+    const spawnZ = defaultSpawnZ;
+
+    return {
+        x: spawnX,
+        y: groundLevel,
+        z: spawnZ
+    };
 }
 
 //--------------------------------------------------------------//
@@ -362,27 +392,37 @@ function animate() {
     }
     
     const updateMiniMap = createMiniMap(scene, player);
-    
+    let sceneChanged = true; // Flag to track if the scene has changed
+    let updateCounter = 0; // Counter to throttle updates
+
     renderer.setAnimationLoop(() => {
         // Modified condition to allow controls in offline mode
         if (playerControls && player) {
             // Check if online mode with socket or offline mode
             if (!isOnline || (isOnline && player.userData.id === socket?.id)) {
                 playerControls();
+                sceneChanged = true; // Mark scene as changed
             }
         }
         
         // Update block manager
         if (blockManager) {
             blockManager.update();
+            sceneChanged = true; // Mark scene as changed
         }
         
-        updateMiniMap();
-        updateChunk();
-        
+        // Throttle updates to every 5 frames
+        if (updateCounter % 5 === 0) {
+            updateMiniMap();
+            updateChunk();
+            sceneChanged = true; // Mark scene as changed
+        }
+        updateCounter++;
+
         const playerLight = scene.getObjectByProperty('type', 'PointLight');
         if (playerLight && player) {
             playerLight.position.copy(player.position).add(new THREE.Vector3(0, 10, 0));
+            sceneChanged = true; // Mark scene as changed
         }
         
         const directionalLight = scene.getObjectByProperty('type', 'DirectionalLight');
@@ -395,6 +435,7 @@ function animate() {
             directionalLight.target.position.copy(player.position);
             directionalLight.target.updateMatrixWorld();
             directionalLight.shadow.camera.updateProjectionMatrix();
+            sceneChanged = true; // Mark scene as changed
         }
 
         // Only emit position if online
@@ -407,7 +448,11 @@ function animate() {
             });
         }
 
-        renderer.render(scene, camera);
+        // Only render if the scene has changed
+        if (sceneChanged) {
+            renderer.render(scene, camera);
+            sceneChanged = false; // Reset the flag
+        }
     });
 }
 
@@ -602,16 +647,35 @@ function hideIntroPopup() {
     popup.style.display = 'none';
 }
 
-
 //--------------------------------------------------------------//
 //                       Scene Setup
 //--------------------------------------------------------------//
 function setupScene() {
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
     cameraOffset = new THREE.Vector3(0, 3, 5);
-    camera.position.set(0, 20, 20);
+    
+    // Add fog to the scene
+    const fogColor = 0x87CEEB; // Sky blue color
+    const fogNear = 50;
+    const fogFar = 500;
+    scene.fog = new THREE.Fog(fogColor, fogNear, fogFar);
+    // Alternatively, for exponential fog:
+    scene.fog = new THREE.FogExp2(fogColor, 0.002);
 
+    // Get configuration values
+    const WORLD_SIZE = WORLD_CONFIG_OFFLINE.SIZE;
+    const CHUNK_SIZE = CLIENT_WORLD_CONFIG.CHUNK_SIZE;
+    const RENDER_DISTANCE = CLIENT_WORLD_CONFIG.RENDER_DISTANCE;
+    
+    // Calculate total world dimension in units
+    const worldDimension = WORLD_SIZE;
+    
+    // Set camera to view the positive quadrant
+    camera.position.set(500, 800, 1300);
+    camera.lookAt(worldDimension / 2, 0, worldDimension / 2);
+
+    // Setup renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
@@ -619,8 +683,24 @@ function setupScene() {
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.5;
-    renderer.setClearColor(0xFFFFFF);
+    renderer.setClearColor(fogColor); // Match the fog color
     document.body.appendChild(renderer.domElement);
+
+    // Create main grid for the whole world
+    const worldGridHelper = new THREE.GridHelper(
+        WORLD_SIZE, // Total size of the grid
+        WORLD_SIZE, // Number of divisions (1 unit per block)
+        0x888888, // Main grid lines
+        0xCCCCCC  // Secondary grid lines
+    );
+
+    // Set opacity for the grid lines
+    worldGridHelper.material.opacity = 0.1;
+    worldGridHelper.material.transparent = true;
+    
+    // Position the grid to extend in positive quadrant
+    worldGridHelper.position.set(worldDimension / 2, 0, worldDimension / 2);
+    scene.add(worldGridHelper);
 }
 
 function setupLighting() {
@@ -664,9 +744,11 @@ function updateCamera(playerPosition) {
 //                       Event Listeners
 //--------------------------------------------------------------//
 function onWindowResize() {
+
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize( window.innerWidth, window.innerHeight );
+
 }
 
 function setupEventListeners() {

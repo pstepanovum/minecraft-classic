@@ -1,26 +1,31 @@
 import { CLIENT_WORLD_CONFIG, camera, scene, chunkManager, chunkWorker, socket, isOnline } from '../script.js';
 import { Inventory } from '../player/inventory.js';
 
+
 class BlockHighlighter {
     constructor(scene) {
-        // Create two geometries: one for wireframe and one for the transparent cube
+        // Create geometries centered on grid cells
         const wireframeGeometry = new THREE.BoxGeometry(1.001, 1.001, 1.001);
         const cubeGeometry = new THREE.BoxGeometry(1.02, 1.02, 1.02);
         const edges = new THREE.EdgesGeometry(wireframeGeometry);
         
         // Create materials
         const wireframeMaterial = new THREE.LineBasicMaterial({
-            color: 0x000000, // Changed to darker color
+            color: 0x000000,
             linewidth: 1,
             transparent: true,
-            opacity: 0.6
+            opacity: 0.6,
+            depthTest: true,    // Enable depth testing
+            depthWrite: false   // Don't write to depth buffer
         });
         
         const cubeMaterial = new THREE.MeshBasicMaterial({
-            color: 0x000000, // Changed to darker color
+            color: 0x000000,
             transparent: true,
             opacity: 0.1,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            depthTest: true,
+            depthWrite: false
         });
         
         // Create meshes
@@ -35,16 +40,51 @@ class BlockHighlighter {
         
         // Add to scene
         scene.add(this.highlightGroup);
+        
+        // Store last position for smooth transitions
+        this.lastPosition = new THREE.Vector3();
     }
 
     update(raycastResult) {
         if (raycastResult && raycastResult.position) {
-            // Update position and make visible
-            this.highlightGroup.position.copy(raycastResult.position);
+            // Calculate centered position
+            const position = new THREE.Vector3(
+                Math.floor(raycastResult.position.x) + 0.5,
+                Math.floor(raycastResult.position.y) + 0.5,
+                Math.floor(raycastResult.position.z) + 0.5
+            );
+            
+            // Smooth transition to new position
+            this.lastPosition.lerp(position, 1.0); // Use 1.0 for instant movement, or lower for smooth transition
+            this.highlightGroup.position.copy(this.lastPosition);
+            
+            // Update visibility
             this.highlightGroup.visible = true;
+            
+            // Optional: Change color based on face being looked at
+            if (raycastResult.hitFace) {
+                this.setColorForFace(raycastResult.hitFace);
+            }
         } else {
-            // Hide if no block is targeted
             this.highlightGroup.visible = false;
+        }
+    }
+
+    setColorForFace(face) {
+        // Optional: Different colors for different faces
+        const faceColors = {
+            'top': 0x00FF00,    // Green for top
+            'bottom': 0xFF0000, // Red for bottom
+            'north': 0x0000FF,  // Blue for north
+            'south': 0xFFFF00,  // Yellow for south
+            'east': 0xFF00FF,   // Magenta for east
+            'west': 0x00FFFF    // Cyan for west
+        };
+        
+        if (faceColors[face]) {
+            this.setColor(faceColors[face]);
+        } else {
+            this.setColor(0x000000); // Default black
         }
     }
 
@@ -59,10 +99,10 @@ class BlockHighlighter {
 
     setOpacity(opacity) {
         if (this.wireframeMesh.material) {
-            this.wireframeMesh.material.opacity = opacity * 0.8; // Wireframe slightly more visible
+            this.wireframeMesh.material.opacity = opacity * 0.8;
         }
         if (this.cubeMesh.material) {
-            this.cubeMesh.material.opacity = opacity * 0.15; // Keep cube very transparent
+            this.cubeMesh.material.opacity = opacity * 0.15;
         }
     }
 
@@ -87,32 +127,152 @@ class BlockHighlighter {
     }
 }
 
+export class Raycaster {
+    constructor() {
+        this.maxDistance = 10;
+        this.raycaster = new THREE.Raycaster();
+        this.vectors = {
+            direction: new THREE.Vector3(),
+            position: new THREE.Vector3(),
+            gridPosition: new THREE.Vector3(),
+            normal: new THREE.Vector3()
+        };
+        this.faceDirections = [
+            { normal: [-1, 0, 0], name: 'west' },
+            { normal: [1, 0, 0], name: 'east' },
+            { normal: [0, -1, 0], name: 'bottom' },
+            { normal: [0, 1, 0], name: 'top' },
+            { normal: [0, 0, -1], name: 'north' },
+            { normal: [0, 0, 1], name: 'south' }
+        ];
+    }
+
+    getBlockAt(x, y, z, chunkManager) {
+        const size = CLIENT_WORLD_CONFIG.CHUNK_SIZE;
+        const chunkX = Math.floor(x / size);
+        const chunkY = Math.floor(y / size);
+        const chunkZ = Math.floor(z / size);
+        const localX = ((x % size) + size) % size;
+        const localY = ((y % size) + size) % size;
+        const localZ = ((z % size) + size) % size;
+    
+        // Get block type from chunk manager
+        const blockType = chunkManager.getBlockType(chunkX, chunkY, chunkZ, localX, localY, localZ);
+        
+        // Return proper block object structure
+        return {
+            blockType: blockType,
+            chunkCoords: { x: chunkX, y: chunkY, z: chunkZ },
+            localCoords: { x: localX, y: localY, z: localZ }
+        };
+    }
+    
+
+    getFaceFromNormal(normal) {
+        if (!normal) return 'unknown';
+
+        const hitDirection = this.faceDirections.find(dir => 
+            dir.normal[0] === normal.x && 
+            dir.normal[1] === normal.y && 
+            dir.normal[2] === normal.z
+        );
+        
+        return hitDirection ? hitDirection.name : 'unknown';
+    }
+
+    castRay(camera, chunkManager) {
+        const { direction, position, gridPosition, normal } = this.vectors;
+        
+        camera.getWorldDirection(direction);
+        position.copy(camera.position);
+        gridPosition.copy(position).floor();
+        
+        const stepX = direction.x >= 0 ? 1 : -1;
+        const stepY = direction.y >= 0 ? 1 : -1;
+        const stepZ = direction.z >= 0 ? 1 : -1;
+        
+        const tDeltaX = Math.abs(1 / direction.x) || Infinity;
+        const tDeltaY = Math.abs(1 / direction.y) || Infinity;
+        const tDeltaZ = Math.abs(1 / direction.z) || Infinity;
+        
+        const xOffset = direction.x >= 0 ? 1 - (position.x - Math.floor(position.x)) : position.x - Math.floor(position.x);
+        const yOffset = direction.y >= 0 ? 1 - (position.y - Math.floor(position.y)) : position.y - Math.floor(position.y);
+        const zOffset = direction.z >= 0 ? 1 - (position.z - Math.floor(position.z)) : position.z - Math.floor(position.z);
+        
+        let tMaxX = direction.x !== 0 ? tDeltaX * xOffset : Infinity;
+        let tMaxY = direction.y !== 0 ? tDeltaY * yOffset : Infinity;
+        let tMaxZ = direction.z !== 0 ? tDeltaZ * zOffset : Infinity;
+        
+        let distance = 0;
+        let lastNormal = new THREE.Vector3();
+        let previousPosition = gridPosition.clone();
+        
+        while (distance <= this.maxDistance) {
+            const block = this.getBlockAt(
+                Math.floor(gridPosition.x),
+                Math.floor(gridPosition.y),
+                Math.floor(gridPosition.z),
+                chunkManager
+            );
+            
+            if (block && block.blockType !== 0) {
+                const hitDistance = Math.min(tMaxX, tMaxY, tMaxZ);
+                const intersectionPoint = position.clone().addScaledVector(direction, hitDistance);
+                
+                return {
+                    position: gridPosition.clone(),
+                    normal: lastNormal.clone(),
+                    blockType: block.blockType,
+                    distance,
+                    chunkCoords: block.chunkCoords,
+                    localCoords: block.localCoords,
+                    previousPosition: previousPosition,
+                    intersectionPoint: intersectionPoint,
+                    hitFace: this.getFaceFromNormal(lastNormal)
+                };
+            }
+            
+            previousPosition.copy(gridPosition);
+            
+            if (tMaxX < tMaxY && tMaxX < tMaxZ) {
+                distance = tMaxX;
+                tMaxX += tDeltaX;
+                gridPosition.x += stepX;
+                lastNormal.set(-stepX, 0, 0);
+            } else if (tMaxY < tMaxZ) {
+                distance = tMaxY;
+                tMaxY += tDeltaY;
+                gridPosition.y += stepY;
+                lastNormal.set(0, -stepY, 0);
+            } else {
+                distance = tMaxZ;
+                tMaxZ += tDeltaZ;
+                gridPosition.z += stepZ;
+                lastNormal.set(0, 0, -stepZ);
+            }
+        }
+        
+        return null;
+    }
+}
+
 class BlockInteractionManager {
     constructor() {
         // Existing properties
         this.camera = camera;
-        this.maxDistance = 5;
-        this.EPSILON = 1e-12;
         this.player = null;
-        
-        this.vectors = {
-            direction: new THREE.Vector3(),
-            position: new THREE.Vector3(),
-            gridPos: new THREE.Vector3(),
-            step: new THREE.Vector3(),
-            normal: new THREE.Vector3(),
-            lastAir: new THREE.Vector3(),
-            delta: new THREE.Vector3(),
-            tMax: new THREE.Vector3()
-        };
-        
+    
+        this.raycaster = new Raycaster();
         this.inventory = new Inventory();
         
         // Add properties for continuous placement
         this.isRightMouseDown = false;
         this.isLeftMouseDown = false;
         this.lastPlaceTime = 0;
-        this.placeInterval = 250; // Minimum time (ms) between block placements
+        this.placeInterval = 350; // Minimum time (ms) between block placements
+        this.initialClickDelay = 350; // Delay before continuous action starts
+        this.rightMouseDownTime = 0;
+        this.leftMouseDownTime = 0;
         
         // Bind methods
         this.handleKeyDown = (e) => e.key.toLowerCase() === 'q' && this.tryRemoveBlock();
@@ -143,111 +303,8 @@ class BlockInteractionManager {
         }
     }
 
-    getBlockAt(x, y, z) {
-        const size = CLIENT_WORLD_CONFIG.CHUNK_SIZE;
-        const chunkX = Math.floor(x / size);
-        const chunkY = Math.floor(y / size);
-        const chunkZ = Math.floor(z / size);
-        
-        return {
-            blockType: chunkManager.getBlockType(
-                chunkX, chunkY, chunkZ,
-                ((x % size) + size) % size,
-                ((y % size) + size) % size,
-                ((z % size) + size) % size
-            ),
-            chunkCoords: { x: chunkX, y: chunkY, z: chunkZ },
-            localCoords: {
-                x: ((x % size) + size) % size,
-                y: ((y % size) + size) % size,
-                z: ((z % size) + size) % size
-            }
-        };
-    }
-
     castRay() {
-        const { direction, position, gridPos, step, normal, lastAir, delta, tMax } = this.vectors;
-        
-        // Setup initial ray state
-        this.camera.getWorldDirection(direction);
-        position.copy(this.camera.position);
-        gridPos.copy(position).floor();
-        
-        // Calculate step directions
-        step.set(
-            Math.abs(direction.x) < this.EPSILON ? 0 : Math.sign(direction.x),
-            Math.abs(direction.y) < this.EPSILON ? 0 : Math.sign(direction.y),
-            Math.abs(direction.z) < this.EPSILON ? 0 : Math.sign(direction.z)
-        );
-
-        // Calculate delta distances
-        delta.set(
-            Math.abs(direction.x) < this.EPSILON ? Infinity : Math.abs(1 / direction.x),
-            Math.abs(direction.y) < this.EPSILON ? Infinity : Math.abs(1 / direction.y),
-            Math.abs(direction.z) < this.EPSILON ? Infinity : Math.abs(1 / direction.z)
-        );
-
-        // Calculate initial tMax values
-        tMax.set(
-            this.getTMax(position.x, direction.x, delta.x),
-            this.getTMax(position.y, direction.y, delta.y),
-            this.getTMax(position.z, direction.z, delta.z)
-        );
-
-        let distance = 0;
-        normal.set(0, 0, 0);
-        lastAir.copy(gridPos);
-
-        // DDA loop
-        while (distance <= this.maxDistance) {
-            const block = this.getBlockAt(gridPos.x, gridPos.y, gridPos.z);
-            
-            if (block.blockType !== 0) {
-                return {
-                    position: gridPos.clone(),
-                    normal: normal.clone(),
-                    blockType: block.blockType,
-                    distance,
-                    chunkCoords: block.chunkCoords,
-                    localCoords: block.localCoords,
-                    previousPosition: lastAir.clone(),
-                    face: this.getFaceFromNormal(normal)
-                };
-            }
-            
-            lastAir.copy(gridPos);
-            
-            // Advance to next block
-            if (tMax.x < tMax.y && tMax.x < tMax.z) {
-                distance = tMax.x;
-                tMax.x += delta.x;
-                gridPos.x += step.x;
-                normal.set(-step.x, 0, 0);
-            } else if (tMax.y < tMax.z) {
-                distance = tMax.y;
-                tMax.y += delta.y;
-                gridPos.y += step.y;
-                normal.set(0, -step.y, 0);
-            } else {
-                distance = tMax.z;
-                tMax.z += delta.z;
-                gridPos.z += step.z;
-                normal.set(0, 0, -step.z);
-            }
-        }
-        
-        return null;
-    }
-
-    getTMax(pos, dir, delta) {
-        if (Math.abs(dir) < this.EPSILON) return Infinity;
-        return dir > 0 ? (Math.floor(pos + 1) - pos) * delta : (pos - Math.floor(pos)) * delta;
-    }
-
-    getFaceFromNormal(normal) {
-        return normal.x !== 0 ? (normal.x > 0 ? 'px' : 'nx') :
-               normal.y !== 0 ? (normal.y > 0 ? 'py' : 'ny') :
-               normal.z !== 0 ? (normal.z > 0 ? 'pz' : 'nz') : null;
+        return this.raycaster.castRay(this.camera, chunkManager);
     }
 
     updateBlock(position, blockType, isRemoval = false) {
@@ -270,55 +327,160 @@ class BlockInteractionManager {
     tryRemoveBlock() {
         const hit = this.castRay();
         if (!hit) return;
-
+    
         const { position, blockType } = hit;
         
-        // Update inventory
-        const slot = this.inventory.hotbar.findIndex(s => s.blockType === blockType);
-        if (slot !== -1 && this.inventory.hotbar[slot].count < 64) {
-            this.inventory.updateSlot(slot, blockType, this.inventory.hotbar[slot].count + 1);
+        // First check the currently selected hotbar slot
+        const currentSlot = this.inventory.hotbar[this.inventory.selectedSlot];
+        if (currentSlot && 
+            (currentSlot.blockType === blockType || !currentSlot.blockType || currentSlot.count === 0) && 
+            (!currentSlot.count || currentSlot.count < 64)) {
+            // Add to current slot
+            this.inventory.updateSlot(
+                this.inventory.selectedSlot,
+                blockType,
+                (currentSlot.count || 0) + 1
+            );
+        } else {
+            // Then check other hotbar slots with the same block type
+            const hotbarSlot = this.inventory.hotbar.findIndex(s => 
+                s.blockType === blockType && s.count < 64
+            );
+            
+            if (hotbarSlot !== -1) {
+                // Add to existing hotbar stack
+                this.inventory.updateSlot(
+                    hotbarSlot, 
+                    blockType, 
+                    this.inventory.hotbar[hotbarSlot].count + 1
+                );
+            } else {
+                // Try to find empty hotbar slot
+                const emptyHotbarSlot = this.inventory.hotbar.findIndex(s => 
+                    s.blockType === null || s.count === 0
+                );
+                
+                if (emptyHotbarSlot !== -1) {
+                    // Add to empty hotbar slot
+                    this.inventory.updateSlot(emptyHotbarSlot, blockType, 1);
+                } else {
+                    // Try to add to main inventory
+                    const inventorySlot = this.inventory.inventory.findIndex(s => 
+                        (s.blockType === blockType && s.count < 64) || 
+                        (s.blockType === null || s.count === 0)
+                    );
+                    
+                    if (inventorySlot !== -1) {
+                        // Update inventory slot
+                        const currentItem = this.inventory.inventory[inventorySlot];
+                        this.inventory.inventory[inventorySlot] = {
+                            blockType: blockType,
+                            count: (currentItem.blockType === blockType ? currentItem.count : 0) + 1
+                        };
+                        this.inventory.updateInventoryUI();
+                    } else {
+                        // Inventory is full, can't pick up block
+                        console.log("Inventory full!");
+                        return;
+                    }
+                }
+            }
         }
-
+    
+        // Remove the block from the world
         this.updateBlock(position, 0, true);
     }
 
+    
     tryPlaceBlock() {
         const hit = this.castRay();
-        if (!hit) return;
-
+        if (!hit) {
+            console.log("No hit detected for placement");
+            return;
+        }
+    
         const currentSlot = this.inventory.hotbar[this.inventory.selectedSlot];
-        if (!currentSlot?.count) return;
-
+        if (!currentSlot?.count) {
+            console.log("No blocks in selected slot or zero count");
+            return;
+        }
+    
         const placePos = hit.position.clone().add(hit.normal);
+        console.log("Attempting to place block at:", placePos);
         
-        // Check if the new block would intersect with the player
+        // Create collision boxes for more thorough checking
         const playerBox = new THREE.Box3();
         const blockBox = new THREE.Box3();
+        const playerHeadBox = new THREE.Box3();
+        const playerFeetBox = new THREE.Box3();
         
+        // Main player hitbox
         playerBox.setFromCenterAndSize(
             this.player.position,
-            new THREE.Vector3(0.6, 1.6, 0.6)
+            new THREE.Vector3(0.6, 1.8, 0.6)
         );
         
+        // Additional check for head level
+        playerHeadBox.setFromCenterAndSize(
+            new THREE.Vector3(
+                this.player.position.x,
+                this.player.position.y + 0.8,
+                this.player.position.z
+            ),
+            new THREE.Vector3(0.6, 0.4, 0.6)
+        );
+    
+        // Additional check for feet level
+        playerFeetBox.setFromCenterAndSize(
+            new THREE.Vector3(
+                this.player.position.x,
+                this.player.position.y - 0.8,
+                this.player.position.z
+            ),
+            new THREE.Vector3(0.6, 0.4, 0.6)
+        );
+        
+        // Block hitbox
         blockBox.setFromCenterAndSize(
-            placePos,
+            new THREE.Vector3(
+                Math.floor(placePos.x) + 0.5,
+                Math.floor(placePos.y) + 0.5,
+                Math.floor(placePos.z) + 0.5
+            ),
             new THREE.Vector3(1, 1, 1)
         );
         
-        if (playerBox.intersectsBox(blockBox)) {
+        // Check all collision boxes
+        if (playerBox.intersectsBox(blockBox) || 
+            playerHeadBox.intersectsBox(blockBox) || 
+            playerFeetBox.intersectsBox(blockBox)) {
+            console.log("Block placement blocked by player collision");
             return;
         }
-
-        // Update inventory
+    
+        // Extra safety check for placing blocks directly under player
+        if (Math.abs(placePos.x - this.player.position.x) < 0.8 &&
+            Math.abs(placePos.z - this.player.position.z) < 0.8 &&
+            placePos.y < this.player.position.y) {
+            const heightDiff = this.player.position.y - placePos.y;
+            if (heightDiff < 1.8) {
+                console.log("Block placement too close under player");
+                return;
+            }
+        }
+    
+        console.log("Updating inventory and placing block");
+        // If all checks pass, update inventory and place block
         this.inventory.updateSlot(
             this.inventory.selectedSlot, 
             currentSlot.blockType, 
             currentSlot.count - 1
         );
-
+    
         this.updateBlock(placePos, currentSlot.blockType);
-        this.lastPlaceTime = Date.now(); // Update last place time
+        this.lastPlaceTime = Date.now();
     }
+
 
     update() {
         const raycastResult = this.castRay();
@@ -326,12 +488,18 @@ class BlockInteractionManager {
         // Update highlighter
         this.highlighter.update(raycastResult);
         
-        // Handle continuous block placement
-        if (this.isRightMouseDown && Date.now() - this.lastPlaceTime >= this.placeInterval) {
-            this.tryPlaceBlock();
+        const now = Date.now();
+        
+        // Handle continuous block placement/removal with initial delay
+        if (this.isRightMouseDown) {
+            if (now - this.rightMouseDownTime >= this.initialClickDelay && now - this.lastPlaceTime >= this.placeInterval) {
+                this.tryPlaceBlock();
+            }
         }
-        if (this.isLeftMouseDown && Date.now() - this.lastPlaceTime >= this.placeInterval) {
-            this.tryRemoveBlock();
+        if (this.isLeftMouseDown) {
+            if (now - this.leftMouseDownTime >= this.initialClickDelay && now - this.lastPlaceTime >= this.placeInterval) {
+                this.tryRemoveBlock();
+            }
         }
         
         if (raycastResult) {
@@ -349,7 +517,7 @@ class BlockInteractionManager {
             this.isRightMouseDown = false;
         }
         if (event.button === 0) {
-            this.isLeftMouseDown = false;  // Fixed: now correctly handles left mouse button
+            this.isLeftMouseDown = false;
         }
     }
 
@@ -358,9 +526,11 @@ class BlockInteractionManager {
         
         if (event.button === 0) {
             this.isLeftMouseDown = true;
+            this.leftMouseDownTime = Date.now();
             this.tryRemoveBlock();
         } else if (event.button === 2) {
             this.isRightMouseDown = true;
+            this.rightMouseDownTime = Date.now();
             this.tryPlaceBlock();
         }
     }
@@ -371,7 +541,6 @@ class BlockInteractionManager {
         document.removeEventListener('mouseup', this.handleMouseUp);
         this.highlighter.dispose();
     }
-
 }
 
 export function initializeBlockInteractions(player) {

@@ -1,3 +1,6 @@
+USE schemGenerationTree for built tree
+
+
 class TreeGenerator {
     constructor(worldConfig, clientConfig, blockTypes, schematicHandler, simplexNoise) {
         this.worldConfig = worldConfig;
@@ -5,6 +8,92 @@ class TreeGenerator {
         this.blockTypes = blockTypes;
         this.schematicHandler = schematicHandler;
         this.simplexNoise = simplexNoise;
+    }
+
+    schemGenerationTree(chunk, chunkX, chunkY, chunkZ, heightMap) {
+        if (!this.schematicHandler || !this.schematicHandler.hasSchematics()) {
+            console.warn('No schematic patterns available');
+            return;
+        }
+    
+        // Specific world coordinates for tree placement
+        const targetWorldX = 20;
+        const targetWorldZ = 20;
+    
+        // Calculate chunk-based coordinates
+        const targetChunkX = Math.floor(targetWorldX / this.clientConfig.CHUNK_SIZE);
+        const targetChunkZ = Math.floor(targetWorldZ / this.clientConfig.CHUNK_SIZE);
+    
+        // Check if the current chunk contains the target coordinates
+        if (chunkX !== targetChunkX || chunkZ !== targetChunkZ) {
+            return;
+        }
+    
+        // Calculate local coordinates within the chunk
+        const localX = targetWorldX % this.clientConfig.CHUNK_SIZE;
+        const localZ = targetWorldZ % this.clientConfig.CHUNK_SIZE;
+    
+        // Use height map to determine ground height at calculated position
+        const heightMapIndex = localX + localZ * this.clientConfig.CHUNK_SIZE;
+        const groundHeight = heightMap[heightMapIndex];
+        const baseY = groundHeight - (chunkY * this.clientConfig.CHUNK_SIZE);
+    
+        // Retrieve tree pattern and metadata
+        const patternName = this.schematicHandler.getAvailablePatterns()[0];
+        const pattern = this.schematicHandler.getPattern(patternName);
+        const metadata = this.schematicHandler.getPatternMetadata(patternName);
+    
+        if (!pattern || !metadata) {
+            console.warn('Pattern or metadata not found');
+            return;
+        }
+    
+        console.log('Tree placement details:', {
+            metadata,
+            position: {
+                chunk: { x: chunkX, y: chunkY, z: chunkZ },
+                local: { x: localX, y: baseY, z: localZ }
+            }
+        });
+    
+        // Place the tree using the pattern
+        console.log(`Placing tree pattern at (${localX}, ${baseY}, ${localZ})`);
+    
+        let blocksPlaced = 0;
+        let blocksSkipped = 0;
+    
+        // Iterate through pattern blocks
+        pattern.blocks.forEach(block => {
+            const localBlockX = localX + block.x;
+            const localBlockY = baseY + block.y;
+            const localBlockZ = localZ + block.z;
+    
+            const index = (x, y, z) => {
+                // Ensure coordinates are within bounds
+                if (x < 0 || x >= this.clientConfig.CHUNK_SIZE ||
+                    y < 0 || y >= this.clientConfig.CHUNK_SIZE ||
+                    z < 0 || z >= this.clientConfig.CHUNK_SIZE) {
+                    return -1;
+                }
+    
+                return x + (y * this.clientConfig.CHUNK_SIZE) + (z * this.clientConfig.CHUNK_SIZE * this.clientConfig.CHUNK_SIZE);
+            };
+    
+            const chunkIndex = index(localBlockX, localBlockY, localBlockZ);
+    
+            if (chunkIndex !== -1) {
+                // Only place block if space is empty
+                if (chunk[chunkIndex] === 0) {
+                    chunk[chunkIndex] = block.type;
+                    blocksPlaced++;
+                } else {
+                    blocksSkipped++;
+                }
+            }
+        });
+    
+        console.log(`Tree pattern placement completed. Placed: ${blocksPlaced}, Skipped: ${blocksSkipped} blocks`);
+        return blocksPlaced > 0;
     }
 
     generateTreesInChunk(chunk, chunkX, chunkY, chunkZ, heightMap, biomeMap) {
@@ -139,50 +228,10 @@ class TreeGenerator {
         const randValue = this.getPositionSeed(x, z);
         const heightRange = biomeConfig.TRUNK_HEIGHT.MAX - biomeConfig.TRUNK_HEIGHT.MIN;
         const height = biomeConfig.TRUNK_HEIGHT.MIN + Math.floor(randValue * heightRange);
-
-        // Select tree shape based on biome or other criteria
-        const treeShape = biomeConfig.TREE_SHAPE || 'default';
-
-        switch (treeShape) {
-            case 'default':
-                this.generateDefaultTree(chunk, x, y, z, height, leafConfig);
-                break;
-            case 'pine':
-                this.generatePineTree(chunk, x, y, z, height, leafConfig);
-                break;
-            case 'oak':
-                this.generateOakTree(chunk, x, y, z, height, leafConfig);
-                break;
-            // Add more tree shapes here
-            default:
-                this.generateDefaultTree(chunk, x, y, z, height, leafConfig);
-                break;
-        }
-    }
-
-    generateDefaultTree(chunk, x, y, z, height, leafConfig) {
+        
         this.generateTrunk(chunk, x, y, z, height);
-        this.generateLeaves(chunk, x, y + height, z, leafConfig);
+        this.generateLeaves(chunk, x, y + height, z, biomeConfig.LEAF_CONFIG);
     }
-
-    generatePineTree(chunk, x, y, z, height, leafConfig) {
-        this.generateTrunk(chunk, x, y, z, height);
-        for (let i = 0; i < height; i++) {
-            const radius = Math.max(1, Math.floor((height - i) / 3));
-            this.generateLeafLayer(chunk, x, y + height - i, z, radius, true);
-        }
-    }
-
-    generateOakTree(chunk, x, y, z, height, leafConfig) {
-        this.generateTrunk(chunk, x, y, z, height);
-        const branchHeight = Math.floor(height / 2);
-        for (let i = 0; i < branchHeight; i++) {
-            const radius = Math.max(1, Math.floor((branchHeight - i) / 2));
-            this.generateLeafLayer(chunk, x, y + branchHeight + i, z, radius, true);
-        }
-    }
-
-    // Existing methods...
 
     generateTrunk(chunk, x, y, z, height) {
         for (let dy = 0; dy < height; dy++) {
@@ -598,8 +647,11 @@ function generateChunk(chunkX, chunkY, chunkZ) {
         }
     }
     
+    
+
     // Generate trees
     if (treeGenerator) {
+        // treeGenerator.schemGenerationTree(chunk, chunkX, chunkY, chunkZ, heightMap);
         treeGenerator.generateTreesInChunk(chunk, chunkX, chunkY, chunkZ, heightMap, biomeMap);
     }
 
@@ -607,8 +659,9 @@ function generateChunk(chunkX, chunkY, chunkZ) {
     return chunk;
 }
 
+
+
 function generateTerrainHeight(x, z) {
-    // Return base ground level if current mode is not set
     if (!currentMode) {
         return worldConfig.BASE_GROUND_LEVEL;
     }
@@ -616,27 +669,21 @@ function generateTerrainHeight(x, z) {
     let noise = 0;
     let amplitude = worldConfig.TERRAIN.AMPLITUDE;
     let frequency = worldConfig.TERRAIN.FREQUENCY;
-    const scale = worldConfig.TERRAIN.SCALE;
-    const octaves = worldConfig.TERRAIN.OCTAVES;
 
-    // Generate noise using multiple octaves
-    for (let i = 0; i < octaves; i++) {
-        noise += simplexNoise.noise2D(x * scale * frequency, z * scale * frequency) * amplitude;
-        amplitude *= 0.5; // Halve the amplitude for each octave
-        frequency *= 2;   // Double the frequency for each octave
+    for (let i = 0; i < worldConfig.TERRAIN.OCTAVES; i++) {
+        noise += simplexNoise.noise2D(x * worldConfig.TERRAIN.SCALE * frequency, z * worldConfig.TERRAIN.SCALE * frequency) * amplitude;
+        amplitude *= 0.5;
+        frequency *= 2;
     }
 
-    // Normalize noise to range [0, 1]
     const normalizedNoise = (noise + 1) / 2;
-    // Calculate surface height based on normalized noise
     const surfaceHeight = Math.floor(worldConfig.BASE_GROUND_LEVEL + normalizedNoise * worldConfig.TERRAIN_HEIGHT_RANGE);
 
-    // Ensure the surface height does not exceed the maximum height
     return Math.min(surfaceHeight, worldConfig.MAX_HEIGHT);
 }
 
 function getBlockType(y, surfaceHeight, biomeType, waterLevel) {
-    const isNearWater = Math.abs(surfaceHeight - waterLevel / 4) <= waterLevel; // Adjust this value to control beach size
+    const isNearWater = Math.abs(surfaceHeight - waterLevel/4) <= waterLevel; // Adjust this value to control beach size
     
     if (y <= waterLevel && y > surfaceHeight) {
         return block_type.WATER;
@@ -655,19 +702,6 @@ function getBlockType(y, surfaceHeight, biomeType, waterLevel) {
             if (y === surfaceHeight) return block_type.GRASS;
             if (y > surfaceHeight - 3) return block_type.DIRT;
             return block_type.STONE;
-        case 'desert':
-            if (y === surfaceHeight) return block_type.SAND;
-            if (y > surfaceHeight - 3) return block_type.GRAVEL;
-            return block_type.STONE;
-        case 'mountains':
-            if (y > surfaceHeight - 3) return block_type.STONE;
-            if (y > surfaceHeight - 1) return block_type.SNOW;
-            if (y > surfaceHeight - 5) return block_type.DIRT;
-            return block_type.STONE;
-        case 'swamp':
-            if (y === surfaceHeight) return block_type.GRASS;
-            if (y > surfaceHeight - 2) return block_type.DIRT;
-            return block_type.STONE;
     }
 }
 
@@ -675,11 +709,7 @@ function getBiomeType(x, z) {
     const biomeScale = 0.005;
     const biomeNoise = simplexNoise.noise2D(x * biomeScale, z * biomeScale);
 
-    if (biomeNoise < -0.5) return 'desert';
-    if (biomeNoise < 0) return 'forest';
-    if (biomeNoise < 0.5) return 'plains';
-    if (biomeNoise < 0.75) return 'swamp';
-    return 'mountains';
+    return biomeNoise < 0 ? 'forest' : 'plains';
 }
 
 

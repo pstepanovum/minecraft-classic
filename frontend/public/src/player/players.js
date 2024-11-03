@@ -8,7 +8,7 @@ const TERMINAL_VELOCITY = -3;
 const WALK_SPEED = 0.0697;
 const SPRINT_SPEED = 0.112;
 const SNEAK_SPEED = 0.03;
-const FLY_SPEED = 0.697;
+const FLY_SPEED = 1.5;
 
 const MOUSE_LOOK_SENSITIVITY = 0.002;
 
@@ -106,12 +106,19 @@ const UV_MAPS = {
 export function createPlayer(scene, playerData, textureAtlas, isLocalPlayer) {
     const player = new THREE.Group();
     player.isFlying = false;
-    player.collisionsEnabled = true;  // Set initial collision state
-    const groundLevel = spawn(playerData.position.x, playerData.position.z);
-    player.position.set(playerData.position.x, groundLevel, playerData.position.z);
-    player.userData.id = playerData.id;
+    player.collisionsEnabled = true;
+
+    // Get spawn position
+    const spawnPosition = spawn(playerData.position?.x, playerData.position?.z);
     
-    // Add animation properties
+    // Set initial position
+    player.position.set(
+        spawnPosition.x,
+        playerData.position?.y || spawnPosition.y,
+        spawnPosition.z
+    );
+    
+    player.userData.id = playerData.id;
     player.animationTime = 0;
     player.isMoving = false;
     player.lastPosition = player.position.clone();
@@ -415,9 +422,11 @@ function applyVerticalPhysics(controls, player, scene) {
 
     const collisionResult = checkCollision(newPosition, scene, player);
     if (!collisionResult.collides) {
+        // Allow smooth vertical movement
         player.position.y = newPosition.y;
     } else {
         if (yVelocity < 0) {
+            // Just stop vertical movement when hitting ground
             isOnGround = true;
         }
         yVelocity = 0;
@@ -436,8 +445,10 @@ function checkCollision(position, scene, player) {
         return { collides: false, normal: new THREE.Vector3() };
     }
 
+    // Adjust collision box to align with grid
+    const adjustedPosition = position.clone();
     playerBox.setFromCenterAndSize(
-        position,
+        adjustedPosition,
         new THREE.Vector3(PLAYER_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH)
     );
 
@@ -448,12 +459,15 @@ function checkCollision(position, scene, player) {
                     for (let i = 0; i < instancedMesh.count; i++) {
                         instancedMesh.getMatrixAt(i, matrix);
                         blockPosition.setFromMatrixPosition(matrix);
+                        
+                        // Adjust block position to match grid
                         blockBox.setFromCenterAndSize(
                             blockPosition,
                             new THREE.Vector3(1, 1, 1)
                         );
+
                         if (playerBox.intersectsBox(blockBox)) {
-                            collisionNormal.subVectors(position, blockPosition).normalize();
+                            collisionNormal.subVectors(adjustedPosition, blockPosition).normalize();
                             return { collides: true, normal: collisionNormal };
                         }
                     }
@@ -463,3 +477,4 @@ function checkCollision(position, scene, player) {
     }
     return { collides: false, normal: new THREE.Vector3() };
 }
+

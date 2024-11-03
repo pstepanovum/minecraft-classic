@@ -10,6 +10,12 @@ export class Texture {
         // Reusable objects for mesh creation
         this.matrix = new THREE.Matrix4();
         this.boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+        this.frustum = new THREE.Frustum();
+        this.camera = null; // Assume camera is set later
+    }
+
+    setCamera(camera) {
+        this.camera = camera;
     }
 
     createChunkMesh(chunk, chunkX, chunkY, chunkZ, scene) {
@@ -17,29 +23,34 @@ export class Texture {
             console.error('Textures not loaded yet');
             return null;
         }
-
+    
+        // Update frustum based on the camera
+        if (this.camera) {
+            const cameraViewProjectionMatrix = new THREE.Matrix4();
+            cameraViewProjectionMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+            this.frustum.setFromProjectionMatrix(cameraViewProjectionMatrix);
+        }
+    
         const chunkGroup = new THREE.Group();
         chunkGroup.name = `${chunkX},${chunkY},${chunkZ}`;
-
         const instances = this.createInstancedMeshes();
-        const instanceCounts = this.processChunkData(
-            chunk, 
-            chunkX, 
-            chunkY, 
-            chunkZ, 
-            instances
-        );
-
+        const instanceCounts = this.processChunkData(chunk, chunkX, chunkY, chunkZ, instances);
+    
+        // Finalize and add the chunk mesh to the scene if there are visible blocks
         this.finalizeChunkMeshes(instances, instanceCounts, chunkGroup);
-        
-        scene.add(chunkGroup);
-        return { mesh: chunkGroup, data: chunk };
+        if (Object.values(instanceCounts).reduce((a, b) => a + b, 0) > 0) {
+            scene.add(chunkGroup);
+            return { mesh: chunkGroup, data: chunk };
+        }
+    
+        return null; // Skip adding empty or out-of-view chunks
     }
+    
 
     createInstancedMeshes() {
         const instances = {};
         const materials = this.getAllMaterials();
-
+    
         // Create a map for block type to material name
         const blockToMaterial = {
             // Basic Blocks
@@ -69,7 +80,14 @@ export class Texture {
             [BlockType.PODZOL]: 'podzol',
             [BlockType.SEAGRASS]: 'seagrass',
         };
-
+    
+        // Ensure MAX_INSTANCES is within a reasonable range
+        const MAX_SAFE_INSTANCES = 10000; // Adjust this value based on your application's needs
+        if (this.MAX_INSTANCES > MAX_SAFE_INSTANCES) {
+            console.warn(`MAX_INSTANCES (${this.MAX_INSTANCES}) exceeds safe limit (${MAX_SAFE_INSTANCES}). Limiting to ${MAX_SAFE_INSTANCES}.`);
+            this.MAX_INSTANCES = MAX_SAFE_INSTANCES;
+        }
+    
         for (const [blockType, materialName] of Object.entries(blockToMaterial)) {
             if (!materials[materialName]) {
                 console.warn(`Missing material for block type ${blockType}: ${materialName}`);
@@ -82,28 +100,42 @@ export class Texture {
             );
         }
     
-
         return instances;
     }
 
     processChunkData(chunk, chunkX, chunkY, chunkZ, instances) {
         const instanceCounts = {};
-
+    
         for (let i = 0; i < chunk.length; i++) {
             const blockType = chunk[i];
             if (blockType !== BlockType.AIR && instances[blockType]) {
                 const [x, y, z] = this.calculateBlockPosition(i);
                 const worldPosition = this.calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ);
-                
-                this.matrix.setPosition(...worldPosition);
-                instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, this.matrix);
-                instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
-            } else if (blockType !== BlockType.AIR) {
-                // console.warn(`Unknown block type encountered: ${blockType}`);
+    
+                // Check visibility of each face
+                if (this.isBlockVisible(chunk, x, y, z)) {
+                    this.matrix.setPosition(...worldPosition);
+                    instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, this.matrix);
+                    instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
+                }
             }
         }
-
+    
         return instanceCounts;
+    }
+
+    isBlockVisible(chunk, x, y, z) {
+        const size = this.CHUNK_SIZE;
+    
+        // Check each face for visibility
+        if (x === 0 || chunk[(x - 1) + y * size + z * size * size] === BlockType.AIR) return true;
+        if (x === size - 1 || chunk[(x + 1) + y * size + z * size * size] === BlockType.AIR) return true;
+        if (y === 0 || chunk[x + (y - 1) * size + z * size * size] === BlockType.AIR) return true;
+        if (y === size - 1 || chunk[x + (y + 1) * size + z * size * size] === BlockType.AIR) return true;
+        if (z === 0 || chunk[x + y * size + (z - 1) * size * size] === BlockType.AIR) return true;
+        if (z === size - 1 || chunk[x + y * size + (z + 1) * size * size] === BlockType.AIR) return true;
+    
+        return false;
     }
 
     calculateBlockPosition(index) {
@@ -115,10 +147,11 @@ export class Texture {
     }
 
     calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ) {
+        // Offset by 0.5 to center blocks on grid lines
         return [
-            chunkX * this.CHUNK_SIZE + x,
-            chunkY * this.CHUNK_SIZE + y,
-            chunkZ * this.CHUNK_SIZE + z
+            chunkX * this.CHUNK_SIZE + x + 0.5,
+            chunkY * this.CHUNK_SIZE + y + 0.5,
+            chunkZ * this.CHUNK_SIZE + z + 0.5
         ];
     }
 
@@ -252,10 +285,7 @@ export class Texture {
                         new THREE.MeshLambertMaterial({ map: texture.side }),
                         new THREE.MeshLambertMaterial({ map: texture.side })
                     ];
-                }
-                
-                
-                else {
+                } else {
                     this.blockMaterials[blockName] = [
                         new THREE.MeshLambertMaterial({ map: texture.side }),
                         new THREE.MeshLambertMaterial({ map: texture.side }),

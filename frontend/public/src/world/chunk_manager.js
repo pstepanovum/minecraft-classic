@@ -8,19 +8,21 @@ export class ChunkManager {
         this.RENDER_DISTANCE = clientConfig.RENDER_DISTANCE;
         this.WORLD_SIZE = worldConfig.SIZE;
         this.MAX_HEIGHT = worldConfig.MAX_HEIGHT;
-        
+
+        this.maxChunks = this.WORLD_SIZE / this.CHUNK_SIZE;
+
         this.chunks = new Map();
         this.meshes = new Map();
         this.createMeshFunction = null;
         this.chunkWorker = null;
         this.lastPlayerChunkPos = null;
-        
-        // Add loading queue for smoother chunk generation
+
         this.loadingQueue = [];
         this.unloadQueue = [];
         this.isProcessing = false;
-        this.maxChunksPerFrame = 2; // Adjust this value based on performance
-        
+        this.maxChunksPerFrame = 2;
+
+        this.bufferPool = new BufferPool(this.CHUNK_SIZE);
     }
 
     setMeshCreationFunction(fn) {
@@ -32,22 +34,23 @@ export class ChunkManager {
     }
 
     isChunkInBounds(chunkX, chunkZ) {
-        const maxChunk = Math.floor(this.WORLD_SIZE / (2 * this.CHUNK_SIZE));
-        return chunkX >= -maxChunk && chunkX <= maxChunk && 
-               chunkZ >= -maxChunk && chunkZ <= maxChunk;
+        return chunkX >= 0 && chunkX < this.maxChunks && 
+               chunkZ >= 0 && chunkZ < this.maxChunks;
     }
+
 
     generateInitialChunk() {
         if (!this.lastPlayerChunkPos) return;
 
         const { x: playerChunkX, z: playerChunkZ } = this.lastPlayerChunkPos;
         
-        // Load chunks within render distance
+        // Load chunks within render distance, but only in valid bounds
         for (let dx = -this.RENDER_DISTANCE; dx <= this.RENDER_DISTANCE; dx++) {
             for (let dz = -this.RENDER_DISTANCE; dz <= this.RENDER_DISTANCE; dz++) {
                 const chunkX = playerChunkX + dx;
                 const chunkZ = playerChunkZ + dz;
                 
+                // Only generate if within bounds (positive quadrant)
                 if (this.isChunkInBounds(chunkX, chunkZ)) {
                     this.generateChunk(chunkX, chunkZ);
                 }
@@ -56,12 +59,15 @@ export class ChunkManager {
     }
 
 
+
     updateChunk(playerPosition) {
         if (!playerPosition) return;
 
+        // Calculate current chunk position
         const currentChunkX = Math.floor(playerPosition.x / this.CHUNK_SIZE);
         const currentChunkZ = Math.floor(playerPosition.z / this.CHUNK_SIZE);
 
+        // Don't update if we're in the same chunk
         if (this.lastPlayerChunkPos && 
             currentChunkX === this.lastPlayerChunkPos.x && 
             currentChunkZ === this.lastPlayerChunkPos.z) {
@@ -70,10 +76,9 @@ export class ChunkManager {
 
         this.lastPlayerChunkPos = { x: currentChunkX, z: currentChunkZ };
         const chunksToKeep = new Set();
-
-        // Calculate distances for all chunks for better prioritization
         const chunkDistances = [];
 
+        // Calculate which chunks should be loaded/unloaded
         for (let dx = -this.RENDER_DISTANCE; dx <= this.RENDER_DISTANCE; dx++) {
             for (let dz = -this.RENDER_DISTANCE; dz <= this.RENDER_DISTANCE; dz++) {
                 const chunkX = currentChunkX + dx;
@@ -81,21 +86,22 @@ export class ChunkManager {
                 const key = `${chunkX},${chunkZ}`;
                 const distance = Math.sqrt(dx * dx + dz * dz);
                 
-                chunksToKeep.add(key);
-
-                if (this.isChunkInBounds(chunkX, chunkZ) && !this.chunks.has(key)) {
-                    chunkDistances.push({ chunkX, chunkZ, distance });
+                // Only keep chunks that are within bounds
+                if (this.isChunkInBounds(chunkX, chunkZ)) {
+                    chunksToKeep.add(key);
+                    
+                    if (!this.chunks.has(key)) {
+                        chunkDistances.push({ chunkX, chunkZ, distance });
+                    }
                 }
             }
         }
 
         // Sort chunks by distance from player
         chunkDistances.sort((a, b) => a.distance - b.distance);
-
-        // Queue chunks for loading
         this.loadingQueue.push(...chunkDistances);
 
-        // Queue far chunks for unloading
+        // Queue chunks for unloading if they're out of range or out of bounds
         for (const [key, chunk] of this.chunks.entries()) {
             if (!chunksToKeep.has(key)) {
                 this.unloadQueue.push(key);
@@ -110,20 +116,20 @@ export class ChunkManager {
 
     async processQueues() {
         this.isProcessing = true;
-
+    
         try {
             // Process a limited number of chunks per frame
             for (let i = 0; i < this.maxChunksPerFrame && this.loadingQueue.length > 0; i++) {
                 const chunk = this.loadingQueue.shift();
                 await this.generateChunk(chunk.chunkX, chunk.chunkZ);
             }
-
+    
             // Process some unloads per frame
             for (let i = 0; i < this.maxChunksPerFrame && this.unloadQueue.length > 0; i++) {
                 const key = this.unloadQueue.shift();
                 this.unloadChunk(key);
             }
-
+    
             // If there's more to process, schedule next frame
             if (this.loadingQueue.length > 0 || this.unloadQueue.length > 0) {
                 requestAnimationFrame(() => this.processQueues());
@@ -139,67 +145,66 @@ export class ChunkManager {
 
     generateChunk(chunkX, chunkZ) {
         const key = `${chunkX},${chunkZ}`;
-        
-        if (this.chunks.has(key) || !this.isChunkInBounds(chunkX, chunkZ)) return;
     
-        // console.log(`Generating chunk at ${chunkX},${chunkZ}`);
+        if (this.chunks.has(key) || !this.isChunkInBounds(chunkX, chunkZ)) {
+            return;
+        }
+    
+        const chunkBuffer = this.bufferPool.getBuffer();
+        if (!chunkBuffer) {
+            console.error(`Failed to generate chunk at (${chunkX}, ${chunkZ}) due to buffer allocation failure.`);
+            return;
+        }
     
         this.chunks.set(key, {
             position: { x: chunkX, z: chunkZ },
-            meshes: new Map()
+            meshes: new Map(),
+            buffer: chunkBuffer
         });
-        
+    
         if (this.chunkWorker) {
-            // Calculate how many vertical chunks we need
             const verticalChunks = Math.ceil(this.MAX_HEIGHT / this.CHUNK_SIZE);
-            
-            // Generate chunks for each vertical section
+    
             for (let chunkY = 0; chunkY < verticalChunks; chunkY++) {
-                this.chunkWorker.postMessage({ 
-                    type: 'generateChunk', 
-                    chunkX, 
-                    chunkY, 
-                    chunkZ 
+                this.chunkWorker.postMessage({
+                    type: 'generateChunk',
+                    chunkX,
+                    chunkY,
+                    chunkZ
                 });
             }
         }
     }
 
     getBlockType(chunkX, chunkY, chunkZ, localX, localY, localZ) {
-    const key = `${chunkX},${chunkZ}`;
-    const chunk = this.chunks.get(key);
-    
-    if (!chunk || !chunk.meshes.has(chunkY)) {
-        return 0; // Return air if chunk doesn't exist
-    }
+        const key = `${chunkX},${chunkZ}`;
+        const chunk = this.chunks.get(key);
+        
+        if (!chunk || !chunk.meshes.has(chunkY)) {
+            return 0; // Return air if chunk doesn't exist
+        }
 
-    // Get block index in the chunk data array
-    const index = localX + 
-                 (localY * this.CHUNK_SIZE) + 
-                 (localZ * this.CHUNK_SIZE * this.CHUNK_SIZE);
-    
-    return chunk.meshes.get(chunkY).data[index] || 0;
-}
+        // Get block index in the chunk data array
+        const index = localX + 
+                    (localY * this.CHUNK_SIZE) + 
+                    (localZ * this.CHUNK_SIZE * this.CHUNK_SIZE);
+        
+        return chunk.meshes.get(chunkY).data[index] || 0;
+    }
 
     unloadChunk(key) {
         const chunk = this.chunks.get(key);
         if (!chunk) return;
-    
-        console.log(`Unloading chunk: ${key}`);
-    
-        // Enhanced cleanup
+
         try {
             chunk.meshes.forEach((meshData) => {
                 if (meshData.mesh) {
-                    // Remove from scene first
                     this.scene.remove(meshData.mesh);
-                    
-                    // Dispose geometries
+
                     if (meshData.mesh.geometry) {
                         meshData.mesh.geometry.dispose();
                     }
-                    
-                    // Dispose materials
+
                     if (meshData.mesh.material) {
                         if (Array.isArray(meshData.mesh.material)) {
                             meshData.mesh.material.forEach(m => {
@@ -213,16 +218,15 @@ export class ChunkManager {
                             meshData.mesh.material.dispose();
                         }
                     }
-    
-                    // Clear any references
+
                     meshData.mesh.clear();
                 }
             });
-    
-            // Clear all references
+
+            this.bufferPool.releaseBuffer(chunk.buffer);
             chunk.meshes.clear();
             this.chunks.delete(key);
-    
+
         } catch (error) {
             console.error(`Error unloading chunk ${key}:`, error);
         }
@@ -240,6 +244,7 @@ export class ChunkManager {
         // Remove old mesh if it exists
         if (oldMeshData && oldMeshData.mesh) {
             this.scene.remove(oldMeshData.mesh);
+            this.bufferPool.releaseBuffer(oldMeshData.data);
         }
 
         // Create new mesh
@@ -290,4 +295,37 @@ export class ChunkManager {
         }
     }
     
+}
+
+class BufferPool {
+    constructor(chunkSize) {
+        this.chunkSize = chunkSize;
+        this.pool = [];
+        this.maxBufferSize = 1024 * 1024 * 1024; // 1 GB limit for example
+    }
+
+    getBuffer() {
+        const bufferSize = this.chunkSize * this.chunkSize * this.chunkSize;
+        if (bufferSize > this.maxBufferSize) {
+            console.error(`Requested buffer size ${bufferSize} exceeds maximum allowed size ${this.maxBufferSize}`);
+            return null;
+        }
+
+        if (this.pool.length > 0) {
+            return this.pool.pop();
+        }
+
+        try {
+            return new Float32Array(bufferSize);
+        } catch (error) {
+            console.error('Error allocating buffer:', error);
+            return null;
+        }
+    }
+
+    releaseBuffer(buffer) {
+        if (buffer) {
+            this.pool.push(buffer);
+        }
+    }
 }

@@ -10,7 +10,7 @@ const { worldState } = require('./world/world_state');
 const PORT = process.env.PORT || 3000;
 
 const WORLD_CONFIG = {
-    SEED: 10,
+    SEED: 8,
     SIZE: 1000,
     BASE_GROUND_LEVEL: 32,
     TERRAIN_HEIGHT_RANGE: 35,
