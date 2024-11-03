@@ -257,10 +257,11 @@ export function addPlayerControls(player, camera, scene, canvas) {
     player.isFlying = false;
     player.collisionsEnabled = true;
 
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+
     function handleKeyEvent(event, isKeyDown) {
-        // Convert the key to lowercase to make it case-insensitive
         const key = event.key.toLowerCase();
-        
         const keyMap = {
             'w': 'forward',
             's': 'backward',
@@ -273,16 +274,12 @@ export function addPlayerControls(player, camera, scene, canvas) {
             'control': 'sneak'
         };
 
-        // Handle Shift key regardless of CapsLock state
         if (key === 'shift') {
             controls.sprint = isKeyDown;
-        } 
-        // Handle normal movement keys
-        else if (keyMap[key]) {
+        } else if (keyMap[key]) {
             controls[keyMap[key]] = isKeyDown;
         }
 
-        // Handle toggle controls for flying and collision
         if (isKeyDown) {
             switch (key) {
                 case 'f':
@@ -297,7 +294,6 @@ export function addPlayerControls(player, camera, scene, canvas) {
         }
     }
 
-    // Add event listeners for keydown and keyup
     window.addEventListener('keydown', event => handleKeyEvent(event, true));
     window.addEventListener('keyup', event => handleKeyEvent(event, false));
 
@@ -306,7 +302,6 @@ export function addPlayerControls(player, camera, scene, canvas) {
         camera.rotation.y = player.yaw;
         camera.rotation.x = player.pitch;
 
-        // Update player model rotation if applicable
         if (player.children[0]) {
             player.children[0].rotation.y = player.yaw;
         }
@@ -320,6 +315,29 @@ export function addPlayerControls(player, camera, scene, canvas) {
         updateCameraRotation();
     }
 
+    function onTouchStart(event) {
+        if (event.touches.length === 1) {
+            lastTouchX = event.touches[0].clientX;
+            lastTouchY = event.touches[0].clientY;
+        }
+    }
+
+    function onTouchMove(event) {
+        if (event.touches.length === 1) {
+            const touch = event.touches[0];
+            const deltaX = touch.clientX - lastTouchX;
+            const deltaY = touch.clientY - lastTouchY;
+
+            player.yaw -= deltaX * MOUSE_LOOK_SENSITIVITY;
+            player.pitch -= deltaY * MOUSE_LOOK_SENSITIVITY;
+            player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+            updateCameraRotation();
+
+            lastTouchX = touch.clientX;
+            lastTouchY = touch.clientY;
+        }
+    }
+
     function onPointerLockChange() {
         isPointerLocked = document.pointerLockElement === canvas;
     }
@@ -327,6 +345,8 @@ export function addPlayerControls(player, camera, scene, canvas) {
     canvas.addEventListener('click', () => canvas.requestPointerLock());
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('touchstart', onTouchStart);
+    canvas.addEventListener('touchmove', onTouchMove);
 
     function updatePlayerMovement() {
         const isSprinting = controls.sprint;
