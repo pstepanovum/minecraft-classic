@@ -339,6 +339,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
             lastTouchX = event.touches[0].clientX;
             lastTouchY = event.touches[0].clientY;
         }
+        event.preventDefault(); // Prevent default zoom behavior
     }
 
     function onTouchMove(event) {
@@ -355,6 +356,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
             lastTouchX = touch.clientX;
             lastTouchY = touch.clientY;
         }
+        event.preventDefault(); // Prevent default zoom behavior
     }
 
     function onPointerLockChange() {
@@ -369,22 +371,24 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
     // Add event listeners for touch controls
     function handleTouchStart(buttonId, controlKey) {
-        return () => {
+        return (event) => {
             controls[controlKey] = true;
             const button = document.getElementById(buttonId);
             if (button) {
                 button.classList.add('highlight');
             }
+            event.preventDefault(); // Prevent default zoom behavior
         };
     }
 
     function handleTouchEnd(buttonId, controlKey) {
-        return () => {
+        return (event) => {
             controls[controlKey] = false;
             const button = document.getElementById(buttonId);
             if (button) {
                 button.classList.remove('highlight');
             }
+            event.preventDefault(); // Prevent default zoom behavior
         };
     }
 
@@ -396,8 +400,15 @@ export function addPlayerControls(player, camera, scene, canvas) {
     document.getElementById('left').addEventListener('touchend', handleTouchEnd('left', 'left'));
     document.getElementById('right').addEventListener('touchstart', handleTouchStart('right', 'right'));
     document.getElementById('right').addEventListener('touchend', handleTouchEnd('right', 'right'));
-    document.getElementById('fly').addEventListener('touchstart', handleTouchStart('fly', 'up'));
-    document.getElementById('fly').addEventListener('touchend', handleTouchEnd('fly', 'up'));
+    document.getElementById('fly').addEventListener('touchstart', (event) => {
+        player.isFlying = !player.isFlying;
+        const button = document.getElementById('fly');
+        if (button) {
+            button.classList.add('highlight');
+            setTimeout(() => button.classList.remove('highlight'), 200); // Brief highlight for feedback
+        }
+        event.preventDefault(); // Prevent default zoom behavior
+    });
     document.getElementById('jump').addEventListener('touchstart', handleTouchStart('jump', 'jump'));
     document.getElementById('jump').addEventListener('touchend', handleTouchEnd('jump', 'jump'));
 
