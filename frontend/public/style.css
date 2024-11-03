@@ -386,6 +386,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  touch-action: manipulation; /* Prevent zoom on touch */
 }
 
 .control-button i {
