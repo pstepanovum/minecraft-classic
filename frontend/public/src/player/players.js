@@ -19,6 +19,8 @@ let isSneaking = false;
 let isOnGround = false;
 let lastTargetBlock = null;
 
+let touchPoints = {};
+
 
 
 // Reusable vectors
@@ -335,26 +337,43 @@ export function addPlayerControls(player, camera, scene, canvas) {
     }
 
     function onTouchStart(event) {
-        if (event.touches.length === 1) {
-            lastTouchX = event.touches[0].clientX;
-            lastTouchY = event.touches[0].clientY;
+        for (let i = 0; i < event.touches.length; i++) {
+            const touch = event.touches[i];
+            touchPoints[touch.identifier] = {
+                startX: touch.clientX,
+                startY: touch.clientY,
+                currentX: touch.clientX,
+                currentY: touch.clientY
+            };
+        }
+        event.preventDefault(); // Prevent default zoom behavior
+    }
+    
+
+    function onTouchMove(event) {
+        for (let i = 0; i < event.touches.length; i++) {
+            const touch = event.touches[i];
+            const point = touchPoints[touch.identifier];
+            if (point) {
+                const deltaX = touch.clientX - point.currentX;
+                const deltaY = touch.clientY - point.currentY;
+    
+                player.yaw -= deltaX * MOUSE_LOOK_SENSITIVITY;
+                player.pitch -= deltaY * MOUSE_LOOK_SENSITIVITY;
+                player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+                updateCameraRotation();
+    
+                point.currentX = touch.clientX;
+                point.currentY = touch.clientY;
+            }
         }
         event.preventDefault(); // Prevent default zoom behavior
     }
 
-    function onTouchMove(event) {
-        if (event.touches.length === 1) {
-            const touch = event.touches[0];
-            const deltaX = touch.clientX - lastTouchX;
-            const deltaY = touch.clientY - lastTouchY;
-
-            player.yaw -= deltaX * MOUSE_LOOK_SENSITIVITY;
-            player.pitch -= deltaY * MOUSE_LOOK_SENSITIVITY;
-            player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
-            updateCameraRotation();
-
-            lastTouchX = touch.clientX;
-            lastTouchY = touch.clientY;
+    function onTouchEnd(event) {
+        for (let i = 0; i < event.changedTouches.length; i++) {
+            const touch = event.changedTouches[i];
+            delete touchPoints[touch.identifier];
         }
         event.preventDefault(); // Prevent default zoom behavior
     }
@@ -365,6 +384,8 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
     document.addEventListener('touchstart', onTouchStart);
     document.addEventListener('touchmove', onTouchMove);
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('click', () => canvas.requestPointerLock());
