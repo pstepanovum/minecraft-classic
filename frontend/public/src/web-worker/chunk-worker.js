@@ -315,7 +315,6 @@ class CaveGenerator {
     }
 }
 
-
 class OreGenerator {
     constructor(worldConfig, simplexNoise) {
         this.worldConfig = worldConfig;
@@ -335,7 +334,6 @@ class OreGenerator {
         return null;
     }
 }
-
 
 let worldConfig;
 let block_type;
@@ -362,7 +360,7 @@ const chunks = new Map();
 const modifiedBlocks = new Map();
 importScripts(
     './noise/simplex-noise.js',
-    './schematic/schematic_handler.js' // SchematicHandler will be available globally
+    './schematic/schematic_handler.js'
 );
 
 self.onmessage = async function(e) {
@@ -681,9 +679,6 @@ function getBiomeType(x, z) {
     if (biomeNoise < 0.75) return 'swamp';
     return 'mountains';
 }
-
-
-
 
 //-----------------------------------------------------
 //                      Server

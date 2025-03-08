@@ -1,6 +1,7 @@
 //----------------------------------------------------------------
 //                  Simplex noise implementation
 //----------------------------------------------------------------
+
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
 
@@ -488,6 +489,5 @@ function buildPermutationTable(random) {
          return (n >>> 0) * 2.3283064365386963e-10; // 2^-32
      };
  }
- //# sourceMappingURL=simplex-noise.js.map
-
+ 
 //----------------------------------------------------------------

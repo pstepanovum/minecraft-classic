@@ -2,7 +2,8 @@
   "name": "minecraft-game-frontend",
   "version": "1.0.0",
   "scripts": {
-    "start": "http-server public -p 8080"
+    "start": "http-server public -p 8080 --cors",
+    "dev": "http-server public -p 8080 --cors -c-1"
   },
   "dependencies": {
     "socket.io": "^4.5.0",

@@ -1,0 +1,9 @@
+Start: 
+
+
+Multiplayer: 
+(cd frontend/npm start)
+(cd backend/npm start)
+
+
+http://localhost:8080/

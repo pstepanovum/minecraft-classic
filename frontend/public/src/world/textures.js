@@ -7,196 +7,35 @@ export class Texture {
         this.MAX_INSTANCES = maxInstances;
         this.CHUNK_SIZE = chunkSize;
         
-        // Reusable objects for mesh creation
+        // Reusable objects
         this.matrix = new THREE.Matrix4();
         this.boxGeometry = new THREE.BoxGeometry(1, 1, 1);
         this.frustum = new THREE.Frustum();
-        this.camera = null; // Assume camera is set later
+        this.camera = null;
     }
 
     setCamera(camera) {
         this.camera = camera;
     }
 
-    createChunkMesh(chunk, chunkX, chunkY, chunkZ, scene) {
-        if (!this.textureAtlas) {
-            console.error('Textures not loaded yet');
-            return null;
-        }
-    
-        // Update frustum based on camera
-        if (this.camera) {
-            const cameraViewProjectionMatrix = new THREE.Matrix4();
-            cameraViewProjectionMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-            this.frustum.setFromProjectionMatrix(cameraViewProjectionMatrix);
-        }
-    
-        const chunkGroup = new THREE.Group();
-        chunkGroup.name = `${chunkX},${chunkY},${chunkZ}`;
-    
-        const instances = this.createInstancedMeshes();
-        const instanceCounts = {};
-    
-        for (let i = 0; i < chunk.length; i++) {
-            const blockType = chunk[i];
-            if (blockType !== BlockType.AIR && instances[blockType]) {
-                const [x, y, z] = this.calculateBlockPosition(i);
-                const worldPosition = this.calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ);
-    
-                // Skip block if it’s outside the camera's frustum
-                if (this.camera && !this.frustum.containsPoint(new THREE.Vector3(...worldPosition))) {
-                    continue;
-                }
-    
-                // Proceed if the block is visible and in the frustum
-                if (this.isBlockVisible(chunk, x, y, z)) {
-                    this.matrix.setPosition(...worldPosition);
-                    instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, this.matrix);
-                    instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
-                }
-            }
-        }
-    
-        // Finalize and add the chunk mesh to the scene if there are visible blocks
-        this.finalizeChunkMeshes(instances, instanceCounts, chunkGroup);
-        if (Object.values(instanceCounts).reduce((a, b) => a + b, 0) > 0) {
-            scene.add(chunkGroup);
-            return { mesh: chunkGroup, data: chunk };
-        }
-    
-        return null; // Skip adding empty or out-of-view chunks
-    }
-    
-
-    createInstancedMeshes() {
-        const instances = {};
-        const materials = this.getAllMaterials();
-    
-        // Create a map for block type to material name
-        const blockToMaterial = {
-            // Basic Blocks
-            [BlockType.GRASS]: 'grass',
-            [BlockType.STONE]: 'stone',
-            [BlockType.DIRT]: 'dirt',
-            [BlockType.SAND]: 'sand',
-            [BlockType.SNOW]: 'snow',
-            [BlockType.WATER]: 'water',
-            [BlockType.GRAVEL]: 'gravel',
-            [BlockType.BEDROCK]: 'bedrock',
-        
-            // Ores
-            [BlockType.COAL_ORE]: 'coal_ore',
-            [BlockType.IRON_ORE]: 'iron_ore',
-            [BlockType.GOLD_ORE]: 'gold_ore',
-            [BlockType.DIAMOND_ORE]: 'diamond_ore',
-            [BlockType.EMERALD_ORE]: 'emerald_ore',
-            [BlockType.REDSTONE_ORE]: 'redstone_ore',
-            [BlockType.LAPIS_ORE]: 'lapis_ore',
-        
-            // Nature
-            [BlockType.SEAGRASS]: 'seagrass',
-            [BlockType.LOG]: 'log',  
-            [BlockType.WOOD]: 'wood',
-            [BlockType.LEAVES]: 'leaves',
-            [BlockType.PODZOL]: 'podzol',
-            [BlockType.SEAGRASS]: 'seagrass',
-        };
-    
-        // Ensure MAX_INSTANCES is within a reasonable range
-        const MAX_SAFE_INSTANCES = 100000; // Adjust this value based on your application's needs
-        if (this.MAX_INSTANCES > MAX_SAFE_INSTANCES) {
-            console.warn(`MAX_INSTANCES (${this.MAX_INSTANCES}) exceeds safe limit (${MAX_SAFE_INSTANCES}). Limiting to ${MAX_SAFE_INSTANCES}.`);
-            this.MAX_INSTANCES = MAX_SAFE_INSTANCES;
-        }
-    
-        for (const [blockType, materialName] of Object.entries(blockToMaterial)) {
-            if (!materials[materialName]) {
-                console.warn(`Missing material for block type ${blockType}: ${materialName}`);
-                continue;
-            }
-            instances[blockType] = new THREE.InstancedMesh(
-                this.boxGeometry,
-                materials[materialName],
-                this.MAX_INSTANCES
-            );
-        }
-    
-        return instances;
-    }
-
-    processChunkData(chunk, chunkX, chunkY, chunkZ, instances) {
-        const instanceCounts = {};
-    
-        for (let i = 0; i < chunk.length; i++) {
-            const blockType = chunk[i];
-            if (blockType !== BlockType.AIR && instances[blockType]) {
-                const [x, y, z] = this.calculateBlockPosition(i);
-                const worldPosition = this.calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ);
-    
-                // Check visibility of each face
-                if (this.isBlockVisible(chunk, x, y, z)) {
-                    this.matrix.setPosition(...worldPosition);
-                    instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, this.matrix);
-                    instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
-                }
-            }
-        }
-    
-        return instanceCounts;
-    }
-
-    isBlockVisible(chunk, x, y, z) {
-        const size = this.CHUNK_SIZE;
-    
-        // Check each face for visibility
-        if (x === 0 || chunk[(x - 1) + y * size + z * size * size] === BlockType.AIR) return true;
-        if (x === size - 1 || chunk[(x + 1) + y * size + z * size * size] === BlockType.AIR) return true;
-        if (y === 0 || chunk[x + (y - 1) * size + z * size * size] === BlockType.AIR) return true;
-        if (y === size - 1 || chunk[x + (y + 1) * size + z * size * size] === BlockType.AIR) return true;
-        if (z === 0 || chunk[x + y * size + (z - 1) * size * size] === BlockType.AIR) return true;
-        if (z === size - 1 || chunk[x + y * size + (z + 1) * size * size] === BlockType.AIR) return true;
-    
-        return false;
-    }
-
-    calculateBlockPosition(index) {
-        return [
-            index % this.CHUNK_SIZE,
-            Math.floor(index / this.CHUNK_SIZE) % this.CHUNK_SIZE,
-            Math.floor(index / (this.CHUNK_SIZE * this.CHUNK_SIZE))
-        ];
-    }
-
-    calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ) {
-        // Offset by 0.5 to center blocks on grid lines
-        return [
-            chunkX * this.CHUNK_SIZE + x + 0.5,
-            chunkY * this.CHUNK_SIZE + y + 0.5,
-            chunkZ * this.CHUNK_SIZE + z + 0.5
-        ];
-    }
-
-    finalizeChunkMeshes(instances, instanceCounts, chunkGroup) {
-        for (const [blockType, mesh] of Object.entries(instances)) {
-            mesh.count = instanceCounts[blockType] || 0;
-            mesh.instanceMatrix.needsUpdate = true;
-            mesh.receiveShadow = true;
-            mesh.castShadow = true;
-            chunkGroup.add(mesh);
-        }
-    }
-
     async loadTextureAtlas(atlasPath) {
-        return new Promise((resolve) => {
+        console.log('Loading texture atlas from:', atlasPath);
+        
+        return new Promise((resolve, reject) => {
             this.textureLoader.load(
                 atlasPath,
                 (loadedTexture) => {
+                    console.log('Texture atlas loaded successfully');
                     this.textureAtlas = loadedTexture;
                     this.initializeTextures();
                     this.initializeMaterials();
                     resolve();
                 },
-                undefined
+                undefined,
+                (error) => {
+                    console.error('Error loading texture:', error, 'Path:', atlasPath);
+                    reject(error);
+                }
             );
         });
     }
@@ -219,8 +58,7 @@ export class Texture {
         texture.minFilter = THREE.NearestFilter;
         texture.generateMipmaps = false;
         
-        // Special handling for leaves
-        if (x === 64 && y === 48) {
+        if (x === 64 && y === 48) { // Special handling for leaves
             texture.premultiplyAlpha = true;
         }
         
@@ -345,6 +183,136 @@ export class Texture {
         }
     }
 
+    createChunkMesh(chunk, chunkX, chunkY, chunkZ, scene) {
+        if (!this.textureAtlas) {
+            console.error('Textures not loaded yet');
+            return null;
+        }
+    
+        // Create a chunk group
+        const chunkGroup = new THREE.Group();
+        chunkGroup.name = `${chunkX},${chunkY},${chunkZ}`;
+    
+        // Create instanced meshes for each block type
+        const instances = this.createInstancedMeshes();
+        const instanceCounts = {};
+    
+        // Process all blocks in the chunk
+        for (let i = 0; i < chunk.length; i++) {
+            const blockType = chunk[i];
+            
+            // Skip air blocks and blocks without instances
+            if (blockType !== BlockType.AIR && instances[blockType]) {
+                const [x, y, z] = this.calculateBlockPosition(i);
+                const worldPosition = this.calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ);
+    
+                // Add all non-air blocks, no visibility check
+                this.matrix.setPosition(...worldPosition);
+                instances[blockType].setMatrixAt(instanceCounts[blockType] || 0, this.matrix);
+                instanceCounts[blockType] = (instanceCounts[blockType] || 0) + 1;
+            }
+        }
+    
+        // Add meshes with blocks to the chunk group
+        this.finalizeChunkMeshes(instances, instanceCounts, chunkGroup);
+        
+        // Only add the chunk to the scene if it has blocks
+        if (Object.values(instanceCounts).reduce((a, b) => a + b, 0) > 0) {
+            scene.add(chunkGroup);
+            return { mesh: chunkGroup, data: chunk };
+        }
+    
+        return null;
+    }
+
+    createInstancedMeshes() {
+        const instances = {};
+        const materials = this.getAllMaterials();
+    
+        const blockToMaterial = {
+            // Basic Blocks
+            [BlockType.GRASS]: 'grass',
+            [BlockType.STONE]: 'stone',
+            [BlockType.DIRT]: 'dirt',
+            [BlockType.SAND]: 'sand',
+            [BlockType.SNOW]: 'snow',
+            [BlockType.WATER]: 'water',
+            [BlockType.GRAVEL]: 'gravel',
+            [BlockType.BEDROCK]: 'bedrock',
+        
+            // Ores
+            [BlockType.COAL_ORE]: 'coal_ore',
+            [BlockType.IRON_ORE]: 'iron_ore',
+            [BlockType.GOLD_ORE]: 'gold_ore',
+            [BlockType.DIAMOND_ORE]: 'diamond_ore',
+            [BlockType.EMERALD_ORE]: 'emerald_ore',
+            [BlockType.REDSTONE_ORE]: 'redstone_ore',
+            [BlockType.LAPIS_ORE]: 'lapis_ore',
+        
+            // Nature
+            [BlockType.SEAGRASS]: 'seagrass',
+            [BlockType.LOG]: 'log',  
+            [BlockType.WOOD]: 'wood',
+            [BlockType.LEAVES]: 'leaves',
+            [BlockType.PODZOL]: 'podzol',
+        };
+    
+        // Limit max instances for safety
+        const MAX_SAFE_INSTANCES = 100000;
+        if (this.MAX_INSTANCES > MAX_SAFE_INSTANCES) {
+            console.warn(`MAX_INSTANCES (${this.MAX_INSTANCES}) exceeds safe limit. Limiting to ${MAX_SAFE_INSTANCES}.`);
+            this.MAX_INSTANCES = MAX_SAFE_INSTANCES;
+        }
+    
+        // Create an instanced mesh for each block type
+        for (const [blockType, materialName] of Object.entries(blockToMaterial)) {
+            if (!materials[materialName]) {
+                console.warn(`Missing material for block type ${blockType}: ${materialName}`);
+                continue;
+            }
+            instances[blockType] = new THREE.InstancedMesh(
+                this.boxGeometry,
+                materials[materialName],
+                this.MAX_INSTANCES
+            );
+        }
+    
+        return instances;
+    }
+
+    // Function removed: no longer checking block visibility
+    // All blocks will be rendered regardless of visibility
+
+    calculateBlockPosition(index) {
+        return [
+            index % this.CHUNK_SIZE,
+            Math.floor(index / this.CHUNK_SIZE) % this.CHUNK_SIZE,
+            Math.floor(index / (this.CHUNK_SIZE * this.CHUNK_SIZE))
+        ];
+    }
+
+    calculateWorldPosition(x, y, z, chunkX, chunkY, chunkZ) {
+        // Offset by 0.5 to center blocks on grid lines
+        return [
+            chunkX * this.CHUNK_SIZE + x + 0.5,
+            chunkY * this.CHUNK_SIZE + y + 0.5,
+            chunkZ * this.CHUNK_SIZE + z + 0.5
+        ];
+    }
+
+    finalizeChunkMeshes(instances, instanceCounts, chunkGroup) {
+        for (const [blockType, mesh] of Object.entries(instances)) {
+            // Only add meshes that have instances
+            if (instanceCounts[blockType] && instanceCounts[blockType] > 0) {
+                mesh.count = instanceCounts[blockType];
+                mesh.instanceMatrix.needsUpdate = true;
+                mesh.receiveShadow = true;
+                mesh.castShadow = true;
+                chunkGroup.add(mesh);
+            }
+        }
+    }
+
     getBlockMaterial(blockType) {
         return this.blockMaterials[blockType];
     }
@@ -354,16 +322,18 @@ export class Texture {
     }
 
     dispose() {
+        // Properly dispose of all textures
         Object.values(this.blockTextures).forEach(texture => {
             if (texture instanceof THREE.Texture) {
                 texture.dispose();
             } else if (texture.top) {
                 texture.top.dispose();
                 texture.side.dispose();
-                texture.bottom?.dispose();
+                if (texture.bottom) texture.bottom.dispose();
             }
         });
 
+        // Properly dispose of all materials
         Object.values(this.blockMaterials).forEach(material => {
             if (Array.isArray(material)) {
                 material.forEach(m => m.dispose());
@@ -373,7 +343,6 @@ export class Texture {
         });
     }
 }
-
 
 export const BlockType = {
     // Special Blocks

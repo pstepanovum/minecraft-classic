@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Minecraft Game">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="icon" type="image/png" href="../../images/favicon/favicon-48x48.png" sizes="48x48" />
+  <link rel="icon" type="image/svg+xml" href="../../images/favicon/favicon.svg" />
+  <link rel="shortcut icon" href="../../images/favicon/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../../images/favicon/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Minecraft Voxel " />
+  <link rel="manifest" href="../../images/favicon/site.webmanifest" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
+  <link rel="manifest" href="../../site.webmanifest">
+  <title>Minecraft Game</title>
+</head>
+<body>
+  <div id="intro-popup">
+    <button id="close-popup">&times;</button>
+    <h2>Welcome to My Minecraft-like Game!</h2>
+    
+    <p>Hi, I'm Pavel. This project is a Minecraft-inspired game built with Three.js and modern web technologies.</p>
+    
+    <div class="update-banner">
+      <h4>What's New in v2.1:</h4>
+      <ul class="update-list">
+        <li>Enhanced Block Interaction: Improved raycasting for precise block removal</li>
+        <li>Real-time Player Orientation: Live updates of player movements</li>
+        <li>Enhanced Multiplayer: Modified blocks now sync instantly with other players</li>
+        <li>Performance Boost: Optimized terrain generation</li>
+        <li>New Features: Added trees and water to enhance world generation</li>
+      </ul>
+    </div>
+  
+    <h5>Key Features:</h5>
+    <ul>
+      <li>Procedurally generated terrain</li>
+      <li>Multiplayer support</li>
+      <li>Customizable world settings</li>
+    </ul>
+  
+    <h5>Game Modes:</h5>
+    <ul>
+      <li><strong>Online:</strong> Connect with others, sync world data</li>
+      <li><strong>Offline:</strong> Play solo with local world generation</li>
+    </ul>
+    <p>The game automatically switches between modes based on server availability.</p>
+  
+    <h5>Controls:</h5>
+    <div class="controls-grid">
+      <div class="controls-column">
+        <h6>Movement</h6>
+        <ul>
+          <li><strong>WASD</strong> to move</li>
+          <li><strong>Space</strong> to jump</li>
+          <li><strong>Shift</strong> to crouch</li>
+          <li><strong>F</strong> to fly</li>
+        </ul>
+      </div>
+      <div class="controls-column">
+        <h6>Interaction</h6>
+        <ul>
+          <li><strong>Mouse</strong> to look around</li>
+          <li><strong>Left Click</strong> to destroy blocks</li>
+          <li><strong>Right Click</strong> to place blocks</li>
+          <li><strong>N</strong> to show map</li>
+        </ul>
+      </div>
+    </div>
+  
+    <h5>Learn More:</h5>
+    <div class="button-container">
+      <a href="https://github.com/pstepanovum/minecraft-classic.git" target="_blank" class="minecraft-button">
+        GitHub Repository
+      </a>
+      <a href="https://lucky-quokka-0a7.notion.site/Web-Minecraft-Development-1133d74755a8807aadd0fe1890d31aad?pvs=4" 
+         target="_blank" 
+         class="minecraft-button">
+        Project Documentation
+      </a>
+    </div>
+  </div>
+  
+  
+  <span id="server-status"></span>
+  </div>
+  <div id="target"></div>
+  <div id="controls">
+    <div id="left-controls">
+        <button id="up" class="control-button" style="grid-column: 2; grid-row: 1;">↑</button>
+        <button id="left" class="control-button" style="grid-column: 1; grid-row: 2;">←</button>
+        <button id="down" class="control-button" style="grid-column: 2; grid-row: 2;">↓</button>
+        <button id="right" class="control-button" style="grid-column: 3; grid-row: 2;">→</button>
+    </div>
+  
+    <div id="right-controls">
+        <button id="fly" class="control-button" style="grid-column: 1; grid-row: 1;">
+            <i class="fas fa-plane"></i>
+        </button>
+        <button id="jump" class="control-button" style="grid-column: 1; grid-row: 2;">
+            <i class="fas fa-arrow-up"></i>
+        </button>
+        <button id="place" class="control-button" style="grid-column: 1; grid-row: 3;">
+            <i class="fas fa-cube"></i>
+        </button>
+    </div>
+</div>
+</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+  <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+  <script src="../../config.js"></script>
+  <script src="../multiplayer/src/script.js" type="module"></script>
+</body>
+</html>

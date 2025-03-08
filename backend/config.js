@@ -1,6 +1,6 @@
 const WORLD_CONFIG = {
     SEED: '1',
-    SIZE: 5000,
+    SIZE: 100,
     MAX_HEIGHT: 100,
     MAX_PLAYERS: 5,
     CAVE: {

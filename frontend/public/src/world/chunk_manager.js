@@ -1,13 +1,22 @@
+
 //--------------------------------------------------------------//
 //                       Chunk Management
 //--------------------------------------------------------------//
+
+import * as GameState from '../core/game-state.js';
 export class ChunkManager {
     constructor(scene, worldConfig = {}, clientConfig) {
         this.scene = scene;
+
+        if (GameState && !GameState.chunkManager) {
+            GameState.setScene(scene);
+        }
+
         this.CHUNK_SIZE = clientConfig.CHUNK_SIZE;
         this.RENDER_DISTANCE = clientConfig.RENDER_DISTANCE;
         this.WORLD_SIZE = worldConfig.SIZE;
         this.MAX_HEIGHT = worldConfig.MAX_HEIGHT;
+        this.MAX_PROCESSING_TIME = clientConfig.MAX_PROCESSING_TIME || 30;
 
         this.maxChunks = this.WORLD_SIZE / this.CHUNK_SIZE;
 
@@ -17,10 +26,18 @@ export class ChunkManager {
         this.chunkWorker = null;
         this.lastPlayerChunkPos = null;
 
+        // Add queues for processing different operations
         this.loadingQueue = [];
         this.unloadQueue = [];
+        this.updateQueue = []; // Add update queue for block changes
         this.isProcessing = false;
         this.maxChunksPerFrame = 2;
+        this.processingStartTime = 0;
+
+        // Add network-related properties
+        this.pendingNetworkUpdates = new Map();
+        this.lastNetworkSync = Date.now();
+        this.syncInterval = 100; // ms between network syncs
 
         this.bufferPool = new BufferPool(this.CHUNK_SIZE);
     }
@@ -31,34 +48,35 @@ export class ChunkManager {
 
     setChunkWorker(worker) {
         this.chunkWorker = worker;
+        if (GameState) {
+            GameState.setChunkWorker(worker);
+        }
     }
 
     isChunkInBounds(chunkX, chunkZ) {
-        return chunkX >= 0 && chunkX < this.maxChunks && 
-               chunkZ >= 0 && chunkZ < this.maxChunks;
+        const worldSizeInChunks = Math.floor(this.WORLD_SIZE / this.CHUNK_SIZE);
+        return chunkX >= 0 && chunkX < worldSizeInChunks && 
+               chunkZ >= 0 && chunkZ < worldSizeInChunks;
     }
-
 
     generateInitialChunk() {
         if (!this.lastPlayerChunkPos) return;
-
+    
         const { x: playerChunkX, z: playerChunkZ } = this.lastPlayerChunkPos;
+        const worldSizeInChunks = Math.floor(this.WORLD_SIZE / this.CHUNK_SIZE);
         
-        // Load chunks within render distance, but only in valid bounds
         for (let dx = -this.RENDER_DISTANCE; dx <= this.RENDER_DISTANCE; dx++) {
             for (let dz = -this.RENDER_DISTANCE; dz <= this.RENDER_DISTANCE; dz++) {
                 const chunkX = playerChunkX + dx;
                 const chunkZ = playerChunkZ + dz;
                 
-                // Only generate if within bounds (positive quadrant)
-                if (this.isChunkInBounds(chunkX, chunkZ)) {
+                if (chunkX >= 0 && chunkX < worldSizeInChunks && 
+                    chunkZ >= 0 && chunkZ < worldSizeInChunks) {
                     this.generateChunk(chunkX, chunkZ);
                 }
             }
         }
     }
-
-
 
     updateChunk(playerPosition) {
         if (!playerPosition) return;
@@ -112,26 +130,60 @@ export class ChunkManager {
         if (!this.isProcessing) {
             this.processQueues();
         }
+        
+        // Process network updates on a regular interval
+        const now = Date.now();
+        if (now - this.lastNetworkSync > this.syncInterval) {
+            this.processPendingNetworkUpdates();
+            this.lastNetworkSync = now;
+        }
     }
 
     async processQueues() {
         this.isProcessing = true;
+        this.processingStartTime = performance.now();
     
         try {
             // Process a limited number of chunks per frame
-            for (let i = 0; i < this.maxChunksPerFrame && this.loadingQueue.length > 0; i++) {
+            let processedCount = 0;
+            
+            // Process chunk loading
+            while (this.loadingQueue.length > 0 && 
+                   processedCount < this.maxChunksPerFrame && 
+                   performance.now() - this.processingStartTime < this.MAX_PROCESSING_TIME) {
+                
                 const chunk = this.loadingQueue.shift();
                 await this.generateChunk(chunk.chunkX, chunk.chunkZ);
+                processedCount++;
             }
     
-            // Process some unloads per frame
-            for (let i = 0; i < this.maxChunksPerFrame && this.unloadQueue.length > 0; i++) {
+            // Process chunk unloading
+            processedCount = 0;
+            while (this.unloadQueue.length > 0 && 
+                   processedCount < this.maxChunksPerFrame &&
+                   performance.now() - this.processingStartTime < this.MAX_PROCESSING_TIME) {
+                
                 const key = this.unloadQueue.shift();
                 this.unloadChunk(key);
+                processedCount++;
+            }
+            
+            // Process block updates (important for multiplayer)
+            processedCount = 0;
+            while (this.updateQueue.length > 0 && 
+                   processedCount < this.maxChunksPerFrame * 5 && // Allow more block updates per frame
+                   performance.now() - this.processingStartTime < this.MAX_PROCESSING_TIME) {
+                
+                const update = this.updateQueue.shift();
+                this.updateBlock(update.x, update.y, update.z, update.blockType, update.fromNetwork);
+                processedCount++;
             }
     
             // If there's more to process, schedule next frame
-            if (this.loadingQueue.length > 0 || this.unloadQueue.length > 0) {
+            if (this.loadingQueue.length > 0 || 
+                this.unloadQueue.length > 0 || 
+                this.updateQueue.length > 0) {
+                
                 requestAnimationFrame(() => this.processQueues());
             } else {
                 this.isProcessing = false;
@@ -141,7 +193,6 @@ export class ChunkManager {
             this.isProcessing = false;
         }
     }
-
 
     generateChunk(chunkX, chunkZ) {
         const key = `${chunkX},${chunkZ}`;
@@ -159,7 +210,8 @@ export class ChunkManager {
         this.chunks.set(key, {
             position: { x: chunkX, z: chunkZ },
             meshes: new Map(),
-            buffer: chunkBuffer
+            buffer: chunkBuffer,
+            lastUpdateTime: Date.now()
         });
     
         if (this.chunkWorker) {
@@ -254,6 +306,17 @@ export class ChunkManager {
                 mesh: meshData.mesh,
                 data: chunk
             });
+            
+            // Update timestamp for last chunk update
+            chunkData.lastUpdateTime = Date.now();
+            
+            // Publish chunk loaded event
+            if (GameState) {
+                GameState.publish(GameState.EVENTS.CHUNK_LOADED, {
+                    chunkX, chunkY, chunkZ,
+                    timestamp: chunkData.lastUpdateTime
+                });
+            }
         }
     }
 
@@ -261,6 +324,7 @@ export class ChunkManager {
         // Clear loading queues
         this.loadingQueue = [];
         this.unloadQueue = [];
+        this.updateQueue = [];
         this.isProcessing = false;
 
         // Dispose all chunks
@@ -270,9 +334,10 @@ export class ChunkManager {
         
         this.chunks.clear();
         this.meshes.clear();
+        this.pendingNetworkUpdates.clear();
     }
 
-    updateBlock(worldX, worldY, worldZ, blockType) {
+    updateBlock(worldX, worldY, worldZ, blockType, fromNetwork = false) {
         const chunkX = Math.floor(worldX / this.CHUNK_SIZE);
         const chunkY = Math.floor(worldY / this.CHUNK_SIZE);
         const chunkZ = Math.floor(worldZ / this.CHUNK_SIZE);
@@ -292,15 +357,95 @@ export class ChunkManager {
                 localZ,
                 blockType
             });
+            
+            // If the update came from the player (not network)
+            // Add it to the pending network updates
+            if (!fromNetwork && GameState.isOnline && GameState.socket) {
+                const updateKey = `${worldX},${worldY},${worldZ}`;
+                
+                this.pendingNetworkUpdates.set(updateKey, {
+                    position: { x: worldX, y: worldY, z: worldZ },
+                    type: blockType === 0 ? 'remove' : blockType,
+                    timestamp: Date.now()
+                });
+            }
+            
+            // Publish block update event
+            if (GameState) {
+                GameState.publish(GameState.EVENTS.BLOCK_UPDATED, {
+                    position: { x: worldX, y: worldY, z: worldZ },
+                    type: blockType === 0 ? 'remove' : blockType,
+                    fromNetwork
+                });
+            }
         }
     }
     
+    // THIS IS THE MISSING FUNCTION THAT CAUSED THE ERROR
+    queueBlockUpdate(worldX, worldY, worldZ, blockType, fromNetwork = false) {
+        // Add block update to queue
+        this.updateQueue.push({
+            x: worldX,
+            y: worldY,
+            z: worldZ,
+            blockType,
+            fromNetwork
+        });
+        
+        // Ensure queue processing is running
+        if (!this.isProcessing) {
+            this.processQueues();
+        }
+    }
+    
+    // Process network updates in batches
+    processPendingNetworkUpdates() {
+        if (!GameState.isOnline || !GameState.socket || this.pendingNetworkUpdates.size === 0) {
+            return;
+        }
+        
+        // Convert pending updates to array
+        const updates = Array.from(this.pendingNetworkUpdates.values());
+        
+        // Send to server if there are updates
+        if (updates.length > 0) {
+            if (updates.length === 1) {
+                // Single update
+                GameState.socket.emit('blockUpdate', updates[0]);
+            } else {
+                // Bulk update
+                GameState.socket.emit('bulkBlockUpdate', updates);
+            }
+            
+            // Clear pending updates after sending
+            this.pendingNetworkUpdates.clear();
+        }
+    }
+    
+    // Apply modifications from other players
+    applyNetworkModifications(modifications) {
+        if (!modifications || modifications.length === 0) {
+            return;
+        }
+        
+        // Queue each modification for processing
+        modifications.forEach(mod => {
+            this.queueBlockUpdate(
+                mod.position.x,
+                mod.position.y,
+                mod.position.z,
+                mod.type === 'remove' ? 0 : mod.type,
+                true // mark as from network
+            );
+        });
+    }
 }
 
 class BufferPool {
     constructor(chunkSize) {
         this.chunkSize = chunkSize;
         this.pool = [];
+        this.maxPoolSize = 50; // Limit pool size to prevent memory leaks
         this.maxBufferSize = 1024 * 1024 * 1024; // 1 GB limit for example
     }
 
@@ -324,8 +469,12 @@ class BufferPool {
     }
 
     releaseBuffer(buffer) {
-        if (buffer) {
+        if (!buffer) return;
+        
+        // Only keep buffers up to the maximum pool size
+        if (this.pool.length < this.maxPoolSize) {
             this.pool.push(buffer);
         }
+        // Otherwise let the buffer be garbage collected
     }
 }

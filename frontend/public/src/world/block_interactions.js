@@ -1,6 +1,8 @@
-import { CLIENT_WORLD_CONFIG, camera, scene, chunkManager, chunkWorker, socket, isOnline } from '../script.js';
+//------------------------------------------------------------
+//                      Block Interactions
+//------------------------------------------------------------
+import * as GameState from '../core/game-state.js';
 import { Inventory } from '../player/inventory.js';
-
 
 class BlockHighlighter {
     constructor(scene) {
@@ -148,7 +150,7 @@ export class Raycaster {
     }
 
     getBlockAt(x, y, z, chunkManager) {
-        const size = CLIENT_WORLD_CONFIG.CHUNK_SIZE;
+        const size = GameState.CLIENT_WORLD_CONFIG.CHUNK_SIZE;
         const chunkX = Math.floor(x / size);
         const chunkY = Math.floor(y / size);
         const chunkZ = Math.floor(z / size);
@@ -212,7 +214,7 @@ export class Raycaster {
                 Math.floor(gridPosition.x),
                 Math.floor(gridPosition.y),
                 Math.floor(gridPosition.z),
-                chunkManager
+                GameState.chunkManager
             );
             
             if (block && block.blockType !== 0) {
@@ -255,11 +257,10 @@ export class Raycaster {
         return null;
     }
 }
-
 class BlockInteractionManager {
     constructor() {
-        // Existing properties
-        this.camera = camera;
+        // Use GameState for camera and other properties
+        this.camera = GameState.camera;
         this.player = null;
         this.raycaster = new Raycaster();
         this.inventory = new Inventory();
@@ -293,7 +294,7 @@ class BlockInteractionManager {
         this.handleCanvasTouchMove = this.handleCanvasTouchMove.bind(this);
         this.handleCanvasTouchEnd = this.handleCanvasTouchEnd.bind(this);
 
-        this.highlighter = new BlockHighlighter(scene);
+        this.highlighter = new BlockHighlighter(GameState.scene);
         
         this.initializeEventListeners();
     }
@@ -325,7 +326,7 @@ class BlockInteractionManager {
     }
 
     castRay() {
-        return this.raycaster.castRay(this.camera, chunkManager);
+        return this.raycaster.castRay(this.camera, GameState.chunkManager);
     }
 
     updateBlock(position, blockType, isRemoval = false) {
@@ -334,11 +335,11 @@ class BlockInteractionManager {
         const z = Math.floor(position.z);
 
         // Update local chunk
-        chunkManager?.updateBlock(x, y, z, blockType);
+        GameState.chunkManager?.updateBlock(x, y, z, blockType);
 
         // Notify server if online
-        if (isOnline && socket?.connected) {
-            socket.emit('blockUpdate', {
+        if (GameState.isOnline && GameState.socket?.connected) {
+            GameState.socket.emit('blockUpdate', {
                 position: { x, y, z },
                 type: isRemoval ? 'remove' : blockType
             });
@@ -667,17 +668,19 @@ class BlockInteractionManager {
 export function initializeBlockInteractions(player) {
     const manager = new BlockInteractionManager();
     manager.player = player;  // Set the player reference
+    // Add to GameState
+    GameState.setBlockManager(manager);
     return manager;
 }
 
 export function handleBlockUpdate(data) {
-    if (data.playerId === socket?.id) return;
+    if (data.playerId === GameState.socket?.id) return;
     
     const { position, type } = data;
     const blockType = type === 'remove' ? 0 : type;
-    const size = CLIENT_WORLD_CONFIG.CHUNK_SIZE;
+    const size = GameState.CLIENT_WORLD_CONFIG.CHUNK_SIZE;
     
-    chunkWorker?.postMessage({
+    GameState.chunkWorker?.postMessage({
         type: 'updateBlock',
         chunkX: Math.floor(position.x / size),
         chunkY: Math.floor(position.y / size),

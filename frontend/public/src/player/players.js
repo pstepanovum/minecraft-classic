@@ -1,42 +1,15 @@
-import { spawn, CLIENT_WORLD_CONFIG, camera, scene, chunkManager, chunkWorker } from '../script.js';
+import * as GameState from '../core/game-state.js';
+import * as Physics from '../player/physics/physics-engine.js';
 
-
-const JUMP_SPEED = 0.15;
-const GRAVITY = 0.008;
-const TERMINAL_VELOCITY = -3;
-
-const WALK_SPEED = 0.0797;
-const SPRINT_SPEED = 0.112;
-const SNEAK_SPEED = 0.03;
-const FLY_SPEED = 1.5;
+const { JUMP_SPEED, GRAVITY, TERMINAL_VELOCITY, PLAYER_WIDTH, PLAYER_HEIGHT, 
+    WALK_SPEED, SPRINT_SPEED, SNEAK_SPEED, FLY_SPEED } = Physics.PHYSICS_CONSTANTS;
 
 const MOUSE_LOOK_SENSITIVITY = 0.002;
 
-let yVelocity = 0;
-let isPointerLocked = false;
-let isSprinting = false;
-let isSneaking = false;
-let isOnGround = false;
-let lastTargetBlock = null;
-
-
-
-
 // Reusable vectors
 const moveVector = new THREE.Vector3();
-const newPosition = new THREE.Vector3();
-const slideVector = new THREE.Vector3();
-const slidePosition = new THREE.Vector3();
-const collisionNormal = new THREE.Vector3();
-const groundCheck = new THREE.Vector3();
-const playerBox = new THREE.Box3();
-const blockBox = new THREE.Box3();
-const blockPosition = new THREE.Vector3();
-const matrix = new THREE.Matrix4();
 
 //-------------------------- Player Constants --------------------------//
-const PLAYER_WIDTH = 0.6;
-const PLAYER_HEIGHT = 1.6;
 const HEAD_SIZE = 0.5;
 const BODY_WIDTH = 0.6;
 const BODY_HEIGHT = 0.8;
@@ -45,10 +18,11 @@ const LIMB_WIDTH = 0.3;
 const LIMB_HEIGHT = 0.8;
 const LIMB_DEPTH = 0.3;
 
-// UV mapping constants (assuming 64x64 texture)
 const TEXTURE_SIZE = 64;
 const UV_UNIT = 1 / TEXTURE_SIZE;
-const UV_PADDING = 0.001; // Small padding to prevent texture bleeding
+const UV_PADDING = 0.001;
+
+const textureCache = new Map();
 
 function createPaddedUVs(uvCoords) {
     const [x, y, width, height] = uvCoords;
@@ -105,57 +79,137 @@ const UV_MAPS = {
 };
 
 export function createPlayer(scene, playerData, textureAtlas, isLocalPlayer) {
+    // Create the player group
     const player = new THREE.Group();
-    player.isFlying = false;
-    player.collisionsEnabled = true;
+    player.isFlying = playerData.isFlying || false;
+    player.collisionsEnabled = playerData.collisionsEnabled !== undefined ? playerData.collisionsEnabled : true;
 
     // Get spawn position
-    const spawnPosition = spawn(playerData.position?.x, playerData.position?.z);
+    const spawnPosition = GameState.spawn(playerData.position?.x, playerData.position?.z);
     
     // Set initial position
     player.position.set(
-        spawnPosition.x,
+        playerData.position?.x || spawnPosition.x,
         playerData.position?.y || spawnPosition.y,
-        spawnPosition.z
+        playerData.position?.z || spawnPosition.z
     );
     
+    // Set player ID and animation state
     player.userData.id = playerData.id;
     player.animationTime = 0;
     player.isMoving = false;
     player.lastPosition = player.position.clone();
+    player.yaw = playerData.rotation || 0;
+    player.pitch = 0;
 
-    // Rest of the createPlayer code...
-    const textureLoader = new THREE.TextureLoader();
-    const texture = textureLoader.load(textureAtlas);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    
-    const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        alphaTest: 0.5,
-        transparent: true,
-        side: THREE.FrontSide
-    });
+    // Load texture only once per texture path (caching)
+    let material;
+    if (textureCache.has(textureAtlas)) {
+        material = textureCache.get(textureAtlas);
+    } else {
+        const textureLoader = new THREE.TextureLoader();
+        const texture = textureLoader.load(textureAtlas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        
+        material = new THREE.MeshBasicMaterial({
+            map: texture,
+            alphaTest: 0.5,
+            transparent: true,
+            side: THREE.FrontSide
+        });
+        
+        textureCache.set(textureAtlas, material);
+    }
 
+    // Create player model parts
     const parts = createPlayerParts(material);
     const playerModel = new THREE.Group();
     
     // Store references to limbs for animation
+    player.head = parts[0];  // Assuming head is index 0
+    player.body = parts[1];  // Assuming body is index 1
     player.leftArm = parts[2];  // Assuming arms are index 2 and 3
     player.rightArm = parts[3];
     player.leftLeg = parts[4];  // Assuming legs are index 4 and 5
     player.rightLeg = parts[5];
 
+    // Add all parts to the model
     parts.forEach(part => playerModel.add(part));
+    
+    // Add the model to the player
+    player.add(playerModel);
+    
+    // Position the model properly - FIXED POSITION
+    // No longer offsetting by -PLAYER_HEIGHT/2, now it's centered
+    playerModel.position.y = 0;
+    
+    // Set rotation of the model
+    playerModel.rotation.y = player.yaw;
 
+    Physics.initializePhysicsState(player);
+    
+    // Add the player to the scene
+    scene.add(player);
+
+    // Register the player with GameState
     if (isLocalPlayer) {
+        GameState.setPlayer(player);
+        GameState.setPlayerLoaded(true);
+        
+        // Hide player model from first-person view
         playerModel.visible = false;
+    } else {
+        // Add to other players in GameState
+        if (player.userData.id) {
+            GameState.addOtherPlayer(player.userData.id, player);
+            
+            // Add player label
+            const label = createPlayerLabel(playerData.id);
+            player.add(label);
+        }
     }
 
-    player.add(playerModel);
-    scene.add(player);
+    // Subscribe to movement events for animation
+    GameState.subscribe(GameState.EVENTS.PLAYER_MOVED, (moveData) => {
+        if (player.userData.id === moveData.id) {
+            animatePlayer(player, moveData);
+        }
+    });
+
     return player;
+}
+
+function createPlayerLabel(playerId) {
+    // Create canvas for the label
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+    
+    // Draw the label text
+    context.fillStyle = '#00000088';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.font = '32px Arial';
+    context.fillStyle = 'white';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(playerId, canvas.width / 2, canvas.height / 2);
+    
+    // Create the texture
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    
+    // Create sprite material
+    const material = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(material);
+    
+    // Position the label above the player
+    sprite.position.set(0, 2, 0);
+    sprite.scale.set(2, 0.5, 1);
+    
+    return sprite;
 }
 
 function createPlayerParts(material) {
@@ -420,30 +474,43 @@ export function addPlayerControls(player, camera, scene, canvas) {
         };
     }
 
-    document.getElementById('up').addEventListener('touchstart', handleTouchStart('up', 'forward'));
-    document.getElementById('up').addEventListener('touchend', handleTouchEnd('up', 'forward'));
-    document.getElementById('down').addEventListener('touchstart', handleTouchStart('down', 'backward'));
-    document.getElementById('down').addEventListener('touchend', handleTouchEnd('down', 'backward'));
-    document.getElementById('left').addEventListener('touchstart', handleTouchStart('left', 'left'));
-    document.getElementById('left').addEventListener('touchend', handleTouchEnd('left', 'left'));
-    document.getElementById('right').addEventListener('touchstart', handleTouchStart('right', 'right'));
-    document.getElementById('right').addEventListener('touchend', handleTouchEnd('right', 'right'));
-    document.getElementById('fly').addEventListener('touchstart', (event) => {
-        player.isFlying = !player.isFlying;
-        const button = document.getElementById('fly');
-        if (button) {
-            button.classList.add('highlight');
-            setTimeout(() => button.classList.remove('highlight'), 200); // Brief highlight for feedback
-        }
-        event.preventDefault(); // Prevent default zoom behavior
-    });
-    document.getElementById('jump').addEventListener('touchstart', handleTouchStart('jump', 'jump'));
-    document.getElementById('jump').addEventListener('touchend', handleTouchEnd('jump', 'jump'));
+    // Initialize touch controls
+    try {
+        document.getElementById('up')?.addEventListener('touchstart', handleTouchStart('up', 'forward'));
+        document.getElementById('up')?.addEventListener('touchend', handleTouchEnd('up', 'forward'));
+        document.getElementById('down')?.addEventListener('touchstart', handleTouchStart('down', 'backward'));
+        document.getElementById('down')?.addEventListener('touchend', handleTouchEnd('down', 'backward'));
+        document.getElementById('left')?.addEventListener('touchstart', handleTouchStart('left', 'left'));
+        document.getElementById('left')?.addEventListener('touchend', handleTouchEnd('left', 'left'));
+        document.getElementById('right')?.addEventListener('touchstart', handleTouchStart('right', 'right'));
+        document.getElementById('right')?.addEventListener('touchend', handleTouchEnd('right', 'right'));
+        document.getElementById('fly')?.addEventListener('touchstart', (event) => {
+            player.isFlying = !player.isFlying;
+            const button = document.getElementById('fly');
+            if (button) {
+                button.classList.add('highlight');
+                setTimeout(() => button.classList.remove('highlight'), 200); // Brief highlight for feedback
+            }
+            event.preventDefault(); // Prevent default zoom behavior
+        });
+        document.getElementById('jump')?.addEventListener('touchstart', handleTouchStart('jump', 'jump'));
+        document.getElementById('jump')?.addEventListener('touchend', handleTouchEnd('jump', 'jump'));
+    } catch (e) {
+        console.warn('Touch controls could not be initialized:', e);
+    }
 
     function updatePlayerMovement() {
+        // Check if the player is moving
+        const isMoving = controls.forward || controls.backward || controls.left || controls.right || 
+                         controls.jump || controls.up || controls.down;
+        
+        // Set movement flag for animation
+        player.isMoving = isMoving;
+        
+        // Calculate movement speed
         const isSprinting = controls.sprint;
         const isSneaking = controls.sneak;
-
+    
         let currentSpeed = WALK_SPEED;
         if (player.isFlying) {
             currentSpeed = FLY_SPEED;
@@ -452,13 +519,15 @@ export function addPlayerControls(player, camera, scene, canvas) {
         } else if (isSneaking) {
             currentSpeed = SNEAK_SPEED;
         }
-
-        const moveVector = new THREE.Vector3(
+    
+        // Calculate movement vector
+        moveVector.set(
             (controls.right ? 1 : 0) - (controls.left ? 1 : 0),
             0,
             (controls.backward ? 1 : 0) - (controls.forward ? 1 : 0)
         ).normalize().multiplyScalar(currentSpeed);
-
+    
+        // Apply flying or walking movement
         if (player.isFlying) {
             moveVector.y = (controls.up ? 1 : 0) - (controls.down ? 1 : 0);
             moveVector.normalize().multiplyScalar(currentSpeed);
@@ -466,127 +535,276 @@ export function addPlayerControls(player, camera, scene, canvas) {
         } else {
             moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
         }
-
-        const newPosition = player.position.clone().add(moveVector);
-        const collisionResult = checkCollision(newPosition, scene, player);
-        if (!collisionResult.collides) {
-            player.position.copy(newPosition);
-        } else {
-            const slideVector = moveVector.clone().projectOnPlane(collisionResult.normal);
-            const slidePosition = player.position.clone().add(slideVector);
-            if (!checkCollision(slidePosition, scene, player).collides) {
-                player.position.copy(slidePosition);
-            }
+    
+        // Apply movement with collision detection
+        if (moveVector.lengthSq() > 0) {
+            Physics.handleMovement(player, moveVector, scene);
         }
-
-        applyMovementWithCollision(player, moveVector, scene);
-
+    
+        // Apply physics only if not flying
         if (!player.isFlying) {
-            applyVerticalPhysics(controls, player, scene);
+            Physics.applyVerticalPhysics(player, controls, scene);
         }
-
-        camera.position.copy(player.position).add(new THREE.Vector3(0, player.isFlying ? 0 : 0.9, 0));
+    
+        // Update camera position 
+        camera.position.copy(player.position).add(new THREE.Vector3(0, PLAYER_HEIGHT * 0.6, 0));
+    
+        // Network code and event publishing remains the same
+        if (GameState.isOnline && GameState.socket && player.userData.id === GameState.socket.id) {
+            GameState.socket.emit('playerMove', {
+                position: player.position.clone(),
+                rotation: player.yaw,
+                isFlying: player.isFlying, 
+                collisionsEnabled: player.collisionsEnabled
+            });
+        }
+        
+        // Publish local movement event
+        GameState.publish(GameState.EVENTS.PLAYER_MOVED, {
+            id: player.userData.id,
+            position: player.position.clone(),
+            rotation: player.yaw,
+            isFlying: player.isFlying, 
+            collisionsEnabled: player.collisionsEnabled,
+            isMoving: player.isMoving
+        });
+        
+        // Animate the player model
+        animatePlayer(player, {
+            isMoving: player.isMoving,
+            rotation: player.yaw
+        });
     }
+
+    // Store player controls in GameState
+    const playerControlsFunction = updatePlayerMovement;
+    GameState.setPlayerControls(playerControlsFunction);
 
     return updatePlayerMovement;
 }
 
 
-function applyMovementWithCollision(player, moveVector, scene) {
-    // Y-axis movement
-    newPosition.copy(player.position).add(new THREE.Vector3(0, moveVector.y, 0));
-    let collisionResult = checkCollision(newPosition, scene, player);
-    if (!collisionResult.collides) {
-        player.position.y = newPosition.y;
-    } else {
-        if (moveVector.y < 0) isOnGround = true;
-        moveVector.y = 0;
-    }
 
-    // X-axis movement
-    newPosition.copy(player.position).add(new THREE.Vector3(moveVector.x, 0, 0));
-    collisionResult = checkCollision(newPosition, scene, player);
-    if (!collisionResult.collides) {
-        player.position.x = newPosition.x;
-    } else {
-        moveVector.x = 0;
-    }
 
-    // Z-axis movement
-    newPosition.copy(player.position).add(new THREE.Vector3(0, 0, moveVector.z));
-    collisionResult = checkCollision(newPosition, scene, player);
-    if (!collisionResult.collides) {
-        player.position.z = newPosition.z;
-    } else {
-        moveVector.z = 0;
+//-------------------------- Player Movement --------------------------//
+
+function animatePlayer(player, moveData) {
+    // Make sure the player has limbs to animate
+    if (!player || !player.children[0]) return;
+    
+    const isMoving = moveData.isMoving || false;
+    const yaw = moveData.rotation || 0;
+    
+    // Update model rotation
+    if (player.children[0]) {
+        player.children[0].rotation.y = yaw;
     }
+    
+    // Animation parameters
+    const walkingSpeed = 1;
+    const swingAmount = 0.04;
+    
+    // Increment animation time if moving
+    if (isMoving) {
+        player.animationTime = (player.animationTime || 0) + 0.1;
+    } else {
+        // Reset to default position if not moving
+        if (player.leftArm) player.leftArm.rotation.x = 0;
+        if (player.rightArm) player.rightArm.rotation.x = 0;
+        if (player.leftLeg) player.leftLeg.rotation.x = 0;
+        if (player.rightLeg) player.rightLeg.rotation.x = 0;
+        return;
+    }
+    
+    // Calculate animation values
+    const swing = Math.sin(player.animationTime * walkingSpeed) * swingAmount;
+    
+    // Apply animations to limbs
+    if (player.leftArm) player.leftArm.rotation.x = -swing;
+    if (player.rightArm) player.rightArm.rotation.x = swing;
+    if (player.leftLeg) player.leftLeg.rotation.x = swing;
+    if (player.rightLeg) player.rightLeg.rotation.x = -swing;
 }
 
-function applyVerticalPhysics(controls, player, scene) {
-    if (controls.jump && isOnGround) {
-        yVelocity = JUMP_SPEED;
-        isOnGround = false;
+//----------------------------- Player Network ---------------------------//
+// Function to handle when a new player joins
+export function handleNewPlayer(scene, playerData, skinPath) {
+    // Skip if this is our own player
+    if (GameState.socket && playerData.id === GameState.socket.id) {
+        return null;
     }
 
-    yVelocity = Math.max(yVelocity - GRAVITY, TERMINAL_VELOCITY);
-    newPosition.copy(player.position);
-    newPosition.y += yVelocity;
-
-    const collisionResult = checkCollision(newPosition, scene, player);
-    if (!collisionResult.collides) {
-        // Allow smooth vertical movement
-        player.position.y = newPosition.y;
-    } else {
-        if (yVelocity < 0) {
-            // Just stop vertical movement when hitting ground
-            isOnGround = true;
+    console.log(`Creating new player with ID: ${playerData.id}`);
+    
+    // Check if player already exists
+    if (GameState.otherPlayers[playerData.id]) {
+        console.log(`Player ${playerData.id} already exists, updating position`);
+        
+        const existingPlayer = GameState.otherPlayers[playerData.id];
+        
+        // Update position
+        if (playerData.position) {
+            existingPlayer.position.set(
+                playerData.position.x,
+                playerData.position.y,
+                playerData.position.z
+            );
         }
-        yVelocity = 0;
+        
+        // Update rotation
+        if (playerData.rotation !== undefined && existingPlayer.children[0]) {
+            existingPlayer.yaw = playerData.rotation;
+            existingPlayer.children[0].rotation.y = playerData.rotation;
+        }
+        
+        return existingPlayer;
     }
 
-    // Ground check
-    groundCheck.copy(player.position);
-    groundCheck.y -= 0.1;
-    if (!checkCollision(groundCheck, scene, player).collides) {
-        isOnGround = false;
-    }
+    // If player doesn't exist yet, create a new one
+    const player = createPlayer(scene, playerData, skinPath || '../../../images/skins/4.png', false);
+    
+    // Store the player in GameState
+    GameState.addOtherPlayer(playerData.id, player);
+    
+    // Publish player connected event
+    GameState.publish(GameState.EVENTS.PLAYER_CONNECTED, {
+        ...playerData,
+        playerObject: player
+    });
+    
+    return player;
 }
 
-function checkCollision(position, scene, player) {
-    if (!player.collisionsEnabled) {
-        return { collides: false, normal: new THREE.Vector3() };
+// Function to handle player position updates
+export function handlePlayerMove(playerData) {
+    // Skip if this is our own movement (we already updated locally)
+    if (GameState.socket && playerData.id === GameState.socket.id) {
+        return;
     }
+    
+    const otherPlayer = GameState.otherPlayers[playerData.id];
+    
+    // If player doesn't exist in our state, it might be a new one
+    if (!otherPlayer) {
+        console.warn(`Received movement for unknown player: ${playerData.id}`);
+        return;
+    }
+    
+    // Update player position
+    if (playerData.position) {
+        otherPlayer.position.set(
+            playerData.position.x,
+            playerData.position.y,
+            playerData.position.z
+        );
+    }
+    
+    // Update player rotation and model
+    if (playerData.rotation !== undefined) {
+        otherPlayer.yaw = playerData.rotation;
+        if (otherPlayer.children[0]) {
+            otherPlayer.children[0].rotation.y = playerData.rotation;
+        }
+    }
+    
+    // Update player state
+    otherPlayer.isFlying = playerData.isFlying !== undefined ? playerData.isFlying : otherPlayer.isFlying;
+    otherPlayer.collisionsEnabled = playerData.collisionsEnabled !== undefined ? playerData.collisionsEnabled : otherPlayer.collisionsEnabled;
+    
+    // Set player as moving for animation
+    otherPlayer.isMoving = true;
+    
+    // Reset move timer
+    if (!otherPlayer.moveTimer) {
+        otherPlayer.moveTimer = setTimeout(() => {
+            otherPlayer.isMoving = false;
+            otherPlayer.moveTimer = null;
+        }, 200);
+    } else {
+        clearTimeout(otherPlayer.moveTimer);
+        otherPlayer.moveTimer = setTimeout(() => {
+            otherPlayer.isMoving = false;
+            otherPlayer.moveTimer = null;
+        }, 200);
+    }
+    
+    // Publish player moved event
+    GameState.publish(GameState.EVENTS.PLAYER_MOVED, {
+        id: playerData.id,
+        position: otherPlayer.position.clone(),
+        rotation: otherPlayer.yaw,
+        isFlying: otherPlayer.isFlying,
+        collisionsEnabled: otherPlayer.collisionsEnabled,
+        isMoving: otherPlayer.isMoving
+    });
+}
 
-    // Adjust collision box to align with grid
-    const adjustedPosition = position.clone();
-    playerBox.setFromCenterAndSize(
-        adjustedPosition,
-        new THREE.Vector3(PLAYER_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH)
-    );
+export function handlePlayerDisconnected(scene, playerId) {
+    if (!playerId || !GameState.otherPlayers[playerId]) {
+        return;
+    }
+    
+    console.log(`Player disconnected: ${playerId}`);
+    
+    const player = GameState.otherPlayers[playerId];
+    
+    // Remove from scene
+    if (scene && player) {
+        scene.remove(player);
+    }
+    
+    // Remove from GameState
+    GameState.removeOtherPlayer(playerId);
+    
+    // Publish player disconnected event
+    GameState.publish(GameState.EVENTS.PLAYER_DISCONNECTED, playerId);
+}
 
-    for (const chunkGroup of scene.children) {
-        if (chunkGroup.isGroup) {
-            for (const instancedMesh of chunkGroup.children) {
-                if (instancedMesh.isInstancedMesh) {
-                    for (let i = 0; i < instancedMesh.count; i++) {
-                        instancedMesh.getMatrixAt(i, matrix);
-                        blockPosition.setFromMatrixPosition(matrix);
-                        
-                        // Adjust block position to match grid
-                        blockBox.setFromCenterAndSize(
-                            blockPosition,
-                            new THREE.Vector3(1, 1, 1)
-                        );
-
-                        if (playerBox.intersectsBox(blockBox)) {
-                            collisionNormal.subVectors(adjustedPosition, blockPosition).normalize();
-                            return { collides: true, normal: collisionNormal };
-                        }
-                    }
-                }
+// Function to set up socket handlers for player management
+export function setupPlayerNetworkHandlers(scene, socket, skinPath) {
+    if (!socket) {
+        console.warn('Cannot set up player network handlers: Socket not available');
+        return;
+    }
+    
+    // Handle new player joining
+    socket.on('newPlayer', (playerData) => {
+        handleNewPlayer(scene, playerData, skinPath);
+    });
+    
+    // Handle player movements
+    socket.on('playerMove', (playerData) => {
+        handlePlayerMove(playerData);
+    });
+    
+    // Handle player disconnections
+    socket.on('playerDisconnected', (playerId) => {
+        handlePlayerDisconnected(scene, playerId);
+    });
+    
+    // Request current players on connection
+    socket.on('connect', () => {
+        socket.emit('requestPlayers');
+    });
+    
+    // Handle receiving current players list
+    socket.on('currentPlayers', (players) => {
+        console.log(`Received ${players.length} current players`);
+        players.forEach(playerData => {
+            if (playerData.id !== socket.id) {
+                handleNewPlayer(scene, playerData, skinPath);
             }
-        }
-    }
-    return { collides: false, normal: new THREE.Vector3() };
+        });
+    });
 }
 
+// Export Player Management API
+export const PlayerManager = {
+    createPlayer,
+    addPlayerControls,
+    handleNewPlayer,
+    handlePlayerMove,
+    handlePlayerDisconnected,
+    setupPlayerNetworkHandlers,
+
+};

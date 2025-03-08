@@ -2,7 +2,7 @@
 //                  World configuration (local)
 //-------------------------------------------------------------
 export const WORLD_CONFIG_OFFLINE  = {
-    SEED: 10,
+    SEED: 1,
     SIZE: 1000,
     BASE_GROUND_LEVEL: 32,
     TERRAIN_HEIGHT_RANGE: 35,
