@@ -5,7 +5,7 @@
 //--------------------------------------------------------------//
 export const CLIENT_WORLD_CONFIG = {
     CHUNK_SIZE: 16, 
-    RENDER_DISTANCE: 7,
+    RENDER_DISTANCE: 4,
 };
 
 export const DEFAULT_PLAYER_DATA = {
