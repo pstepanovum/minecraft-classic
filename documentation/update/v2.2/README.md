@@ -1,5 +1,7 @@
 ## Update v2.2
 
+Video: https://www.youtube.com/watch?v=yayj4PVfgkE
+
 This update introduces several major improvements to our Minecraft-style training world, focusing on map containment, NPC behavior, physics systems, and performance optimization.
 
 ### Map Boundaries System
