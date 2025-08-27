@@ -4,7 +4,7 @@
 //                           Configuration
 //--------------------------------------------------------------//
 export const CLIENT_WORLD_CONFIG = {
-    CHUNK_SIZE: 16, 
+    CHUNK_SIZE: 16,
     RENDER_DISTANCE: 4,
 };
 
@@ -166,7 +166,7 @@ export function clearChunkMap() {
 // Utility function to get block type
 export function getBlockType(x, y, z) {
     if (!chunkManager) return 0;
-    
+
     const size = client_world_config.CHUNK_SIZE;
     const chunkX = Math.floor(x / size);
     const chunkY = Math.floor(y / size);
@@ -174,7 +174,7 @@ export function getBlockType(x, y, z) {
     const localX = ((x % size) + size) % size;
     const localY = ((y % size) + size) % size;
     const localZ = ((z % size) + size) % size;
-    
+
     return chunkManager.getBlockType(chunkX, chunkY, chunkZ, localX, localY, localZ);
 }
 
@@ -186,10 +186,10 @@ export function isGameReady() {
 // Add the spawn function that was previously exported from script.js
 export function spawn(x, z) {
     if (!worldConfig) return { x: 0, y: 60, z: 0 };
-    
+
     // Calculate spawn position based on world size
     const worldSize = worldConfig.SIZE || 512;
-    
+
     // Default spawn position at the center of the world
     const defaultSpawnX = worldSize / 2;
     const defaultSpawnZ = worldSize / 2;
@@ -217,7 +217,7 @@ export function setupScene(worldSize) {
 
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
     setCamera(camera);
-    
+
     // Add fog to the scene
     const fogColor = 0x87CEEB; // Sky blue color
     const fogNear = 50;
@@ -228,7 +228,7 @@ export function setupScene(worldSize) {
 
     // Calculate total world dimension in units
     const worldDimension = worldSize;
-    
+
     // Set camera to view the positive quadrant
     camera.position.set(500, 800, 1300);
     camera.lookAt(worldDimension / 2, 0, worldDimension / 2);
@@ -256,11 +256,11 @@ export function setupScene(worldSize) {
     // Set opacity for the grid lines
     worldGridHelper.material.opacity = 0.1;
     worldGridHelper.material.transparent = true;
-    
+
     // Position the grid to extend in positive quadrant
     worldGridHelper.position.set(worldDimension / 2, 0, worldDimension / 2);
     scene.add(worldGridHelper);
-    
+
     return { scene, camera, renderer };
 }
 
@@ -291,7 +291,7 @@ export function setupLighting() {
     directionalLight.shadow.bias = -0.0001; // Minimal shadow acne correction
     directionalLight.shadow.normalBias = 0.05;
     directionalLight.shadow.radius = 2; // Soft shadow edges
-    
+
     scene.add(directionalLight);
 
     const hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x545454, 0.4);
@@ -305,7 +305,7 @@ export function setupLighting() {
 // Handle window resize
 export function handleWindowResize() {
     if (!camera || !renderer) return;
-    
+
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -370,7 +370,7 @@ export function createStatusBar() {
     const playerCount = document.createElement('span');
     playerCount.id = 'player-count';
     playerCount.textContent = '1 player online';
-    
+
     statusBar.appendChild(document.createElement('br'));
     statusBar.appendChild(playerCount);
 
@@ -431,13 +431,13 @@ export function updatePlayerCount() {
 export function showIntroPopup() {
     const popup = document.getElementById('intro-popup');
     if (!popup) return;
-    
+
     popup.style.display = 'block';
 
     const closeButton = document.getElementById('close-popup');
     closeButton.addEventListener('click', hideIntroPopup);
 
-    window.addEventListener('click', function(event) {
+    window.addEventListener('click', function (event) {
         if (event.target === popup) {
             hideIntroPopup();
         }
@@ -456,7 +456,7 @@ export function hideIntroPopup() {
 export function showNotification(message, duration = 3000) {
     // Create notification element if it doesn't exist
     let notifications = document.getElementById('notifications');
-    
+
     if (!notifications) {
         notifications = document.createElement('div');
         notifications.id = 'notifications';
@@ -466,7 +466,7 @@ export function showNotification(message, duration = 3000) {
         notifications.style.zIndex = '1000';
         document.body.appendChild(notifications);
     }
-    
+
     // Create new notification
     const notification = document.createElement('div');
     notification.className = 'notification';
@@ -480,15 +480,15 @@ export function showNotification(message, duration = 3000) {
     notification.style.fontSize = '14px';
     notification.style.opacity = '0';
     notification.style.transition = 'opacity 0.3s';
-    
+
     // Add to container
     notifications.appendChild(notification);
-    
+
     // Animate in
     setTimeout(() => {
         notification.style.opacity = '1';
     }, 10);
-    
+
     // Remove after duration
     setTimeout(() => {
         notification.style.opacity = '0';
@@ -509,7 +509,7 @@ export function subscribe(event, callback) {
         subscribers[event] = [];
     }
     subscribers[event].push(callback);
-    
+
     // Return unsubscribe function
     return () => {
         subscribers[event] = subscribers[event].filter(cb => cb !== callback);

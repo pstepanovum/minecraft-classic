@@ -1,30 +1,25 @@
 // npc-physics-simple.js
-// Simplified dedicated physics system for NPCs with hardcoded gravity and collision
-
 import * as GameState from '../../../../../src/core/game-state.js';
+import { NPC_BEHAVIOR } from '../config-npc-behavior.js';
 
-// Constants - hardcoded for NPCs specifically
+// Constants for NPC physics
 export const NPC_PHYSICS = {
-    GRAVITY: 0.008,           // Slightly stronger gravity than players
-    TERMINAL_VELOCITY: -3,  // Faster terminal velocity
-    JUMP_SPEED: 0.15,         // Same jump height
-    COLLISION_WIDTH: 0.5,     // Slightly narrower than player
-    COLLISION_HEIGHT: 1.6,    // Same height as player
-    WALK_SPEED: 0.065,        // Slower than player
-    GROUND_CHECK_DISTANCE: 0.15 // Distance to check below NPC for ground detection
+    GRAVITY: 0.008,
+    TERMINAL_VELOCITY: -3,
+    JUMP_SPEED: 0.15,
+    COLLISION_WIDTH: 0.5,
+    COLLISION_HEIGHT: 1.6,
+    WALK_SPEED: 0.065,
+    GROUND_CHECK_DISTANCE: 0.15
 };
 
-// Reusable objects to avoid creating new ones
+// Reusable vectors for calculations
 const moveVector = new THREE.Vector3();
 const newPosition = new THREE.Vector3();
 const groundCheckPos = new THREE.Vector3();
 
 /**
- * Apply gravity to an NPC
- * @param {Object} npc - The NPC object
- * @param {Object} scene - The scene containing blocks
- * @param {Number} deltaTime - Time since last frame
- * @returns {Boolean} - Whether the NPC is on the ground
+ * Apply gravity to an NPC and handle ground collisions
  */
 export function applyNPCGravity(npc, scene, deltaTime = 1) {
     // Initialize velocity if not exists
@@ -77,8 +72,7 @@ export function applyNPCGravity(npc, scene, deltaTime = 1) {
 }
 
 /**
- * Make an NPC jump
- * @param {Object} npc - The NPC object
+ * Make the NPC jump
  */
 export function makeNPCJump(npc) {
     if (npc.isOnGround) {
@@ -90,13 +84,7 @@ export function makeNPCJump(npc) {
 }
 
 /**
- * Move an NPC horizontally with collision detection
- * @param {Object} npc - The NPC object
- * @param {THREE.Vector3} direction - Direction to move
- * @param {Number} speed - Movement speed
- * @param {Object} scene - The scene containing blocks
- * @param {Number} deltaTime - Time since last frame
- * @returns {Object} - Collision result
+ * Move NPC in the given direction, handling collisions
  */
 export function moveNPC(npc, direction, speed, scene, deltaTime = 1) {
     // Calculate movement vector
@@ -139,10 +127,7 @@ export function moveNPC(npc, direction, speed, scene, deltaTime = 1) {
 }
 
 /**
- * Check for collisions between an NPC and the world
- * @param {THREE.Vector3} position - Position to check
- * @param {Object} scene - The scene containing blocks
- * @returns {Object} - Collision result
+ * Check if the NPC's position would collide with any blocks
  */
 export function checkNPCCollision(position, scene) {
     // Create a box for collision checking
@@ -204,8 +189,7 @@ export function checkNPCCollision(position, scene) {
 }
 
 /**
- * Reset an NPC's physics state
- * @param {Object} npc - The NPC object
+ * Reset NPC physics state (useful when repositioning NPCs)
  */
 export function resetNPCPhysics(npc) {
     npc.velocity = { x: 0, y: 0, z: 0 };
@@ -213,15 +197,9 @@ export function resetNPCPhysics(npc) {
 }
 
 /**
- * Check if an NPC is stuck and needs to be reset
- * @param {Object} npc - The NPC object
- * @returns {Boolean} - Whether the NPC is stuck
+ * Check if NPC is stuck (useful for recovery)
  */
 export function isNPCStuck(npc) {
-    // NPC is stuck if:
-    // 1. Not on ground
-    // 2. Not moving vertically (velocity near zero)
-    // 3. Position is unusual (very high or very low)
     return (
         !npc.isOnGround && 
         Math.abs(npc.velocity.y) < 0.001 &&
@@ -229,6 +207,7 @@ export function isNPCStuck(npc) {
     );
 }
 
+// Export all functions
 export default {
     NPC_PHYSICS,
     applyNPCGravity,
