@@ -1,8 +1,7 @@
-//--------------------------------------------------------------//
-// FILE: frontend/public/modes/research/src/config-training-world.js
-//--------------------------------------------------------------//
-//                  World configuration (NPC-optimized)
-//-------------------------------------------------------------
+// ==============================================================
+// FILE: research/src/config-training-world.js
+// ==============================================================
+
 export const TRAINING_WORLD_CONFIG  = {
     SEED: 124,
     SIZE: 50,                     // Smaller world size for NPCs

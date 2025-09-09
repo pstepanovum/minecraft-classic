@@ -1,3 +1,7 @@
+// ==============================================================
+// FILE: src/player/players.js
+// ==============================================================
+
 import * as GameState from '../core/game-state.js';
 import * as Physics from '../player/physics/physics-engine.js';
 

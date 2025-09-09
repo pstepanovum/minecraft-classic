@@ -1,4 +1,6 @@
-// world/world_state.js
+// ==============================================================
+// FILE: backend/world/world_state.js
+// ==============================================================
 class BlockModificationTracker {
     constructor() {
         // Store modifications by absolute position instead of chunks

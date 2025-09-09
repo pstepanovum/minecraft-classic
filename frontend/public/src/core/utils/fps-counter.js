@@ -1,4 +1,6 @@
-// src/core/utils/fps-counter.js
+// ==============================================================
+// FILE: src/core/utils/fps-counter.js
+// ==============================================================
 
 export function getFPSCounter() {
     // Create a simple FPS display element

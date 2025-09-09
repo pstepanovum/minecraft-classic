@@ -1,5 +1,6 @@
-// npc-block-placement.js
-// System for NPCs to place blocks in the world
+// ==============================================================
+// FILE: research/src/npc/physics/npc-block-placement.js
+// ==============================================================
 
 import * as GameState from '../../../../../src/core/game-state.js';
 import { NPC_PHYSICS } from './npc-physics.js';

@@ -1,4 +1,6 @@
-// physics-engine.js
+// ==============================================================
+// FILE: src/player/physics/physics-engine.js
+// ==============================================================
 import * as GameState from '../../core/game-state.js';
 
 // Constants

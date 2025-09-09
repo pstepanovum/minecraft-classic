@@ -1,3 +1,7 @@
+// ==============================================================
+// FILE: src/web-worker/chunk-worker.js
+// ==============================================================
+
 class TreeGenerator {
     constructor(worldConfig, clientConfig, blockTypes, schematicHandler, simplexNoise) {
         this.worldConfig = worldConfig;

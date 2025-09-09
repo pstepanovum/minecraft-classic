@@ -1,5 +1,6 @@
-// npc-system-simplified.js
-// A complete NPC system with block removal and placement integration
+// ==============================================================
+// FILE: research/src/npc/npc-system.js
+// ==============================================================
 
 import { createPlayer } from '../../../../src/player/players.js';
 import * as GameState from '../../../../src/core/game-state.js';

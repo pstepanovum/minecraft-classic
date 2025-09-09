@@ -1,3 +1,7 @@
+// ==============================================================
+// FILE: src/world/textures.js
+// ==============================================================
+
 export class Texture {
     constructor(maxInstances, chunkSize) {
         this.textureLoader = new THREE.TextureLoader();

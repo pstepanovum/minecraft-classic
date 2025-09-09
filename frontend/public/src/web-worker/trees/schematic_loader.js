@@ -1,4 +1,6 @@
-// src/web-worker/trees/schematic_loader.js
+// ==============================================================
+// FILE: src/web-worker/trees/schematic_loader.js
+// ==============================================================
 
 const SCHEMATIC_CONFIG = {
     defaultPatterns: ['tree'],

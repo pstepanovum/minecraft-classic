@@ -1,4 +1,7 @@
-// npc-physics-simple.js
+// ==============================================================
+// FILE: research/src/npc/physics/npc-physics.js
+// ==============================================================
+
 import * as GameState from '../../../../../src/core/game-state.js';
 import { NPC_BEHAVIOR } from '../config-npc-behavior.js';
 

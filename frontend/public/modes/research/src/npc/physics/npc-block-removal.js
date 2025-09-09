@@ -1,5 +1,6 @@
-// simplified-npc-block-removal.js
-// Focused implementation for NPCs to remove blocks
+// ==============================================================
+// FILE: research/src/npc/physics/npc-block-removal.js
+// ==============================================================
 
 import * as GameState from '../../../../../src/core/game-state.js';
 import { NPC_BEHAVIOR } from '../config-npc-behavior.js';

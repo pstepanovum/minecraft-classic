@@ -1,4 +1,6 @@
-// web-worker/schematic/schematic_handler.js
+// ==============================================================
+// FILE: frontend/public/src/web-worker/schematic/schematic_handler.js
+// ==============================================================
 importScripts('https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js');
 
 (function(global) {

@@ -1,5 +1,6 @@
-// config-npc-behavior.js
-// Central configuration file for all NPC behavior settings
+// ==============================================================
+// FILE: research/src/npc/config-npc-behavior.js
+// ==============================================================
 
 export const NPC_BEHAVIOR = {
     // Physics constants
