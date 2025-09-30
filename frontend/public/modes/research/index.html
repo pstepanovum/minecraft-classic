@@ -1,113 +1,103 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Voxel Environment for AI Training">
-  <link rel="stylesheet" href="../../style.css">
-  <link rel="icon" type="image/png" href="../../images/favicon/favicon-48x48.png" sizes="48x48" />
-  <link rel="icon" type="image/svg+xml" href="../../images/favicon/favicon.svg" />
-  <link rel="shortcut icon" href="../../images/favicon/favicon.ico" />
-  <link rel="apple-touch-icon" sizes="180x180" href="../../images/favicon/apple-touch-icon.png" />
-  <meta name="apple-mobile-web-app-title" content="AI Training Environment" />
-  <link rel="manifest" href="../../images/favicon/site.webmanifest" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Voxel Environment for AI Training" />
+    <link rel="stylesheet" href="../../style.css" />
+    <link
+      rel="icon"
+      type="image/png"
+      href="../../images/favicon/favicon-48x48.png"
+      sizes="48x48"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="../../images/favicon/favicon.svg"
+    />
+    <link rel="shortcut icon" href="../../images/favicon/favicon.ico" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="../../images/favicon/apple-touch-icon.png"
+    />
+    <meta name="apple-mobile-web-app-title" content="AI Training Environment" />
+    <link rel="manifest" href="../../images/favicon/site.webmanifest" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
 
-  <title>Voxel Environment for AI Training</title>
-  <style>
-    /* Additional styles for research interface */
-    #research-panel {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background-color: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 15px;
-      border-radius: 5px;
-      font-family: Arial, sans-serif;
-      z-index: 1000;
-      min-width: 200px;
-    }
-    
-    #research-panel h3 {
-      margin-top: 0;
-      margin-bottom: 10px;
-    }
-    
-    #research-panel button {
-      width: 100%;
-      padding: 8px;
-      margin-bottom: 5px;
-      cursor: pointer;
-      background-color: #555;
-      color: white;
-      border: none;
-      border-radius: 3px;
-    }
-    
-    #research-panel button:hover {
-      background-color: #777;
-    }
-    
-    #stats {
-      font-size: 12px;
-      margin-top: 10px;
-      line-height: 1.4;
-    }
-    
-    #controls {
-      bottom: 30px; /* Moved up to make space for research controls */
-    }
-    
-    #intro-popup h2, #intro-popup h4 {
-      color: #4CAF50; /* Research green */
-    }
-  </style>
-</head>
-<body>
-  
-  <!-- Research Panel -->
-  <div id="research-panel">
-    <h3>Research Controls</h3>
-    <button id="toggle-recording">Start Recording</button>
-    <button id="run-scenario">Run Test Scenario</button>
-    <button id="export-data">Export Data</button>
-    <button id="reset-environment">Reset Environment</button>
-    
-    <div id="stats">
-      Status: Idle<br>
-      Player position: X:0 Y:0 Z:0<br>
-      Data points: 0<br>
-      FPS: 60
-    </div>
-  </div>
-  
-  <span id="server-status"></span>
-  <div id="target"></div>
-  <div id="controls">
-    <div id="left-controls">
-        <button id="up" class="control-button" style="grid-column: 2; grid-row: 1;">↑</button>
-        <button id="left" class="control-button" style="grid-column: 1; grid-row: 2;">←</button>
-        <button id="down" class="control-button" style="grid-column: 2; grid-row: 2;">↓</button>
-        <button id="right" class="control-button" style="grid-column: 3; grid-row: 2;">→</button>
-    </div>
-  
-    <div id="right-controls">
-        <button id="fly" class="control-button" style="grid-column: 1; grid-row: 1;">
-            <i class="fas fa-plane"></i>
-        </button>
-        <button id="jump" class="control-button" style="grid-column: 1; grid-row: 2;">
-            <i class="fas fa-arrow-up"></i>
-        </button>
-        <button id="place" class="control-button" style="grid-column: 1; grid-row: 3;">
-            <i class="fas fa-cube"></i>
-        </button>
-    </div>
-  </div>
+    <title>Voxel Environment for AI Training</title>
+  </head>
+  <body>
+    <!-- Research Panel -->
+    <div id="research-panel"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
-  <script src="../../config.js"></script>
-  <script src="./src/script.js" type="module"></script>
-</body>
+    <span id="server-status"></span>
+    <div id="target"></div>
+    <div id="controls">
+      <div id="left-controls">
+        <button
+          id="up"
+          class="control-button"
+          style="grid-column: 2; grid-row: 1"
+        >
+          ↑
+        </button>
+        <button
+          id="left"
+          class="control-button"
+          style="grid-column: 1; grid-row: 2"
+        >
+          ←
+        </button>
+        <button
+          id="down"
+          class="control-button"
+          style="grid-column: 2; grid-row: 2"
+        >
+          ↓
+        </button>
+        <button
+          id="right"
+          class="control-button"
+          style="grid-column: 3; grid-row: 2"
+        >
+          →
+        </button>
+      </div>
+
+      <div id="right-controls">
+        <button
+          id="fly"
+          class="control-button"
+          style="grid-column: 1; grid-row: 1"
+        >
+          <i class="fas fa-plane"></i>
+        </button>
+        <button
+          id="jump"
+          class="control-button"
+          style="grid-column: 1; grid-row: 2"
+        >
+          <i class="fas fa-arrow-up"></i>
+        </button>
+        <button
+          id="place"
+          class="control-button"
+          style="grid-column: 1; grid-row: 3"
+        >
+          <i class="fas fa-cube"></i>
+        </button>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="../../config.js"></script>
+    <script src="./src/script.js" type="module"></script>
+  </body>
 </html>

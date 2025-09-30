@@ -2,221 +2,309 @@
 // FILE: research/src/npc/physics/npc-physics.js
 // ==============================================================
 
-import * as GameState from '../../../../../src/core/game-state.js';
-import { NPC_BEHAVIOR } from '../config-npc-behavior.js';
+import * as GameState from "../../../../../src/core/game-state.js";
+import { NPC_BEHAVIOR } from "../config-npc-behavior.js";
 
-// Constants for NPC physics
+//--------------------------------------------------------------//
+//                        Physics Constants
+//--------------------------------------------------------------//
+
 export const NPC_PHYSICS = {
-    GRAVITY: 0.008,
-    TERMINAL_VELOCITY: -3,
-    JUMP_SPEED: 0.15,
-    COLLISION_WIDTH: 0.5,
-    COLLISION_HEIGHT: 1.6,
-    WALK_SPEED: 0.065,
-    GROUND_CHECK_DISTANCE: 0.15
+  GRAVITY: NPC_BEHAVIOR.PHYSICS.GRAVITY,
+  TERMINAL_VELOCITY: NPC_BEHAVIOR.PHYSICS.TERMINAL_VELOCITY,
+  JUMP_SPEED: NPC_BEHAVIOR.PHYSICS.JUMP_SPEED,
+  COLLISION_WIDTH: NPC_BEHAVIOR.PHYSICS.COLLISION_WIDTH,
+  COLLISION_HEIGHT: NPC_BEHAVIOR.PHYSICS.COLLISION_HEIGHT,
+  WALK_SPEED: NPC_BEHAVIOR.PHYSICS.WALK_SPEED,
+  GROUND_CHECK_DISTANCE: NPC_BEHAVIOR.PHYSICS.GROUND_CHECK_DISTANCE,
 };
 
-// Reusable vectors for calculations
-const moveVector = new THREE.Vector3();
-const newPosition = new THREE.Vector3();
-const groundCheckPos = new THREE.Vector3();
+const tempVector = new THREE.Vector3();
+const testPosition = new THREE.Vector3();
 
-/**
- * Apply gravity to an NPC and handle ground collisions
- */
+//--------------------------------------------------------------//
+//                        Core Physics
+//--------------------------------------------------------------//
+
 export function applyNPCGravity(npc, scene, deltaTime = 1) {
-    // Initialize velocity if not exists
-    if (npc.velocity === undefined) {
-        npc.velocity = { x: 0, y: 0, z: 0 };
-        npc.isOnGround = false;
-    }
-    
-    // Apply gravity with delta time
-    npc.velocity.y = Math.max(
-        npc.velocity.y - (NPC_PHYSICS.GRAVITY * deltaTime * 60), 
-        NPC_PHYSICS.TERMINAL_VELOCITY
-    );
-    
-    // Calculate new position
-    newPosition.copy(npc.position);
-    newPosition.y += npc.velocity.y;
-    
-    // Check for collision with ground/ceiling
-    const collision = checkNPCCollision(newPosition, scene);
-    
-    if (!collision.collides) {
-        // No collision, apply velocity
-        npc.position.y = newPosition.y;
-        npc.isOnGround = false;
-    } else {
-        // Hit something
-        if (npc.velocity.y < 0) {
-            // Hit ground - stop falling and set on ground
-            npc.isOnGround = true;
-        } else {
-            // Hit ceiling - stop rising
-            npc.isOnGround = false;
-        }
-        
-        // Stop vertical movement
-        npc.velocity.y = 0;
-    }
-    
-    // Double-check ground status with ray cast
-    groundCheckPos.copy(npc.position);
-    groundCheckPos.y -= NPC_PHYSICS.GROUND_CHECK_DISTANCE;
-    
-    // If there's no collision with ground check, NPC is not on ground
-    if (!checkNPCCollision(groundCheckPos, scene).collides) {
-        npc.isOnGround = false;
-    }
-    
-    return npc.isOnGround;
-}
-
-/**
- * Make the NPC jump
- */
-export function makeNPCJump(npc) {
-    if (npc.isOnGround) {
-        npc.velocity.y = NPC_PHYSICS.JUMP_SPEED;
-        npc.isOnGround = false;
-        return true;
-    }
-    return false;
-}
-
-/**
- * Move NPC in the given direction, handling collisions
- */
-export function moveNPC(npc, direction, speed, scene, deltaTime = 1) {
-    // Calculate movement vector
-    moveVector.copy(direction).normalize().multiplyScalar(speed * deltaTime * 60);
-    
-    // Ensure Y component is 0 for horizontal movement
-    moveVector.y = 0;
-    
-    // Store original position
-    const originalPosition = npc.position.clone();
-    
-    // Try X movement
-    newPosition.copy(originalPosition);
-    newPosition.x += moveVector.x;
-    let xCollision = checkNPCCollision(newPosition, scene);
-    
-    // If no collision, apply X movement
-    if (!xCollision.collides) {
-        npc.position.x = newPosition.x;
-    }
-    
-    // Try Z movement
-    newPosition.copy(npc.position);
-    newPosition.z += moveVector.z;
-    let zCollision = checkNPCCollision(newPosition, scene);
-    
-    // If no collision, apply Z movement
-    if (!zCollision.collides) {
-        npc.position.z = newPosition.z;
-    }
-    
-    // Calculate if there was any movement
-    const hasMoved = !npc.position.equals(originalPosition);
-    
-    return {
-        hasMoved,
-        xBlocked: xCollision.collides,
-        zBlocked: zCollision.collides
-    };
-}
-
-/**
- * Check if the NPC's position would collide with any blocks
- */
-export function checkNPCCollision(position, scene) {
-    // Create a box for collision checking
-    const npcBox = new THREE.Box3().setFromCenterAndSize(
-        position,
-        new THREE.Vector3(
-            NPC_PHYSICS.COLLISION_WIDTH,
-            NPC_PHYSICS.COLLISION_HEIGHT,
-            NPC_PHYSICS.COLLISION_WIDTH
-        )
-    );
-    
-    // Get bounds to check
-    const minX = Math.floor(npcBox.min.x);
-    const maxX = Math.ceil(npcBox.max.x);
-    const minY = Math.floor(npcBox.min.y);
-    const maxY = Math.ceil(npcBox.max.y);
-    const minZ = Math.floor(npcBox.min.z);
-    const maxZ = Math.ceil(npcBox.max.z);
-    
-    // Check each block in bounds
-    for (let x = minX; x < maxX; x++) {
-        for (let y = minY; y < maxY; y++) {
-            for (let z = minZ; z < maxZ; z++) {
-                // Get block type at position
-                let blockType;
-                try {
-                    blockType = GameState.getBlockType(x, y, z);
-                } catch (e) {
-                    // Block might be outside loaded chunks
-                    continue;
-                }
-                
-                // Skip non-solid blocks (air, water, etc.)
-                if (blockType <= 0 || blockType === 8 || blockType === 9) {
-                    continue;
-                }
-                
-                // Create block box
-                const blockBox = new THREE.Box3().setFromCenterAndSize(
-                    new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5),
-                    new THREE.Vector3(1, 1, 1)
-                );
-                
-                // Check if NPC box intersects block box
-                if (npcBox.intersectsBox(blockBox)) {
-                    return {
-                        collides: true,
-                        blockType: blockType,
-                        blockPosition: { x, y, z }
-                    };
-                }
-            }
-        }
-    }
-    
-    // No collision
-    return { collides: false };
-}
-
-/**
- * Reset NPC physics state (useful when repositioning NPCs)
- */
-export function resetNPCPhysics(npc) {
+  if (!npc.velocity) {
     npc.velocity = { x: 0, y: 0, z: 0 };
     npc.isOnGround = false;
+  }
+
+  npc.velocity.y = Math.max(
+    npc.velocity.y - NPC_PHYSICS.GRAVITY * deltaTime * 60,
+    NPC_PHYSICS.TERMINAL_VELOCITY
+  );
+
+  testPosition.copy(npc.position);
+  testPosition.y += npc.velocity.y;
+
+  const collision = checkNPCCollision(testPosition, scene);
+
+  if (collision.collides) {
+    npc.velocity.y = 0;
+    npc.isOnGround = npc.velocity.y <= 0;
+  } else {
+    npc.position.y = testPosition.y;
+    npc.isOnGround = false;
+  }
+
+  testPosition.copy(npc.position);
+  testPosition.y -= NPC_PHYSICS.GROUND_CHECK_DISTANCE;
+
+  if (!checkNPCCollision(testPosition, scene).collides) {
+    npc.isOnGround = false;
+  }
+
+  return npc.isOnGround;
 }
 
-/**
- * Check if NPC is stuck (useful for recovery)
- */
+export function makeNPCJump(npc) {
+  if (!npc.isOnGround || !npc.velocity) return false;
+
+  npc.velocity.y = NPC_PHYSICS.JUMP_SPEED;
+  npc.isOnGround = false;
+  return true;
+}
+
+export function moveNPC(npc, direction, speed, scene, deltaTime = 1) {
+  if (!direction || direction.lengthSq() === 0) {
+    return { hasMoved: false, xBlocked: false, zBlocked: false };
+  }
+
+  tempVector
+    .copy(direction)
+    .normalize()
+    .multiplyScalar(speed * deltaTime * 60);
+  tempVector.y = 0;
+
+  const startPosition = npc.position.clone();
+
+  testPosition.copy(npc.position);
+  testPosition.x += tempVector.x;
+  const xCollision = checkNPCCollision(testPosition, scene);
+
+  if (!xCollision.collides) {
+    npc.position.x = testPosition.x;
+  }
+
+  testPosition.copy(npc.position);
+  testPosition.z += tempVector.z;
+  const zCollision = checkNPCCollision(testPosition, scene);
+
+  if (!zCollision.collides) {
+    npc.position.z = testPosition.z;
+  }
+
+  enforceNPCBoundaries(npc);
+
+  return {
+    hasMoved: !npc.position.equals(startPosition),
+    xBlocked: xCollision.collides,
+    zBlocked: zCollision.collides,
+  };
+}
+
+//--------------------------------------------------------------//
+//                     Collision Detection
+//--------------------------------------------------------------//
+
+export function checkNPCCollision(position, scene) {
+  const halfWidth = NPC_PHYSICS.COLLISION_WIDTH / 2;
+  const halfHeight = NPC_PHYSICS.COLLISION_HEIGHT / 2;
+
+  const minX = Math.floor(position.x - halfWidth);
+  const maxX = Math.ceil(position.x + halfWidth);
+  const minY = Math.floor(position.y - halfHeight);
+  const maxY = Math.ceil(position.y + halfHeight);
+  const minZ = Math.floor(position.z - halfWidth);
+  const maxZ = Math.ceil(position.z + halfWidth);
+
+  for (let x = minX; x < maxX; x++) {
+    for (let y = minY; y < maxY; y++) {
+      for (let z = minZ; z < maxZ; z++) {
+        const blockType = getBlockTypeAt(x, y, z);
+
+        if (isSolidBlock(blockType)) {
+          if (isCollidingWithBlock(position, x, y, z)) {
+            return {
+              collides: true,
+              blockType: blockType,
+              blockPosition: { x, y, z },
+            };
+          }
+        }
+      }
+    }
+  }
+
+  return { collides: false };
+}
+
+function getBlockTypeAt(x, y, z) {
+  try {
+    return GameState.getBlockType(x, y, z);
+  } catch (e) {
+    return 998;
+  }
+}
+
+function isSolidBlock(blockType) {
+  return blockType > 0 && blockType !== 8 && blockType !== 9;
+}
+
+function isCollidingWithBlock(npcPosition, blockX, blockY, blockZ) {
+  const npcBox = {
+    minX: npcPosition.x - NPC_PHYSICS.COLLISION_WIDTH / 2,
+    maxX: npcPosition.x + NPC_PHYSICS.COLLISION_WIDTH / 2,
+    minY: npcPosition.y - NPC_PHYSICS.COLLISION_HEIGHT / 2,
+    maxY: npcPosition.y + NPC_PHYSICS.COLLISION_HEIGHT / 2,
+    minZ: npcPosition.z - NPC_PHYSICS.COLLISION_WIDTH / 2,
+    maxZ: npcPosition.z + NPC_PHYSICS.COLLISION_WIDTH / 2,
+  };
+
+  const blockBox = {
+    minX: blockX,
+    maxX: blockX + 1,
+    minY: blockY,
+    maxY: blockY + 1,
+    minZ: blockZ,
+    maxZ: blockZ + 1,
+  };
+
+  return (
+    npcBox.minX < blockBox.maxX &&
+    npcBox.maxX > blockBox.minX &&
+    npcBox.minY < blockBox.maxY &&
+    npcBox.maxY > blockBox.minY &&
+    npcBox.minZ < blockBox.maxZ &&
+    npcBox.maxZ > blockBox.minZ
+  );
+}
+
+//--------------------------------------------------------------//
+//                     Boundary System
+//--------------------------------------------------------------//
+
+export function enforceNPCBoundaries(npc) {
+  if (!npc || !npc.position) return false;
+
+  const worldConfig = GameState.worldConfig;
+  if (!worldConfig || !worldConfig.SIZE) return false;
+
+  const worldSize = worldConfig.SIZE;
+  const buffer = 1.0;
+  let wasContained = false;
+
+  if (npc.position.x < buffer) {
+    npc.position.x = buffer;
+    wasContained = true;
+  } else if (npc.position.x > worldSize - buffer) {
+    npc.position.x = worldSize - buffer;
+    wasContained = true;
+  }
+
+  if (npc.position.z < buffer) {
+    npc.position.z = buffer;
+    wasContained = true;
+  } else if (npc.position.z > worldSize - buffer) {
+    npc.position.z = worldSize - buffer;
+    wasContained = true;
+  }
+
+  if (npc.position.y < 0) {
+    npc.position.y = 1;
+    if (npc.velocity) npc.velocity.y = 0;
+    wasContained = true;
+  } else if (npc.position.y > 100) {
+    npc.position.y = 100;
+    if (npc.velocity) npc.velocity.y = 0;
+    wasContained = true;
+  }
+
+  return wasContained;
+}
+
+//--------------------------------------------------------------//
+//                     Pitch System (NEW - for looking up/down)
+//--------------------------------------------------------------//
+
+export function calculatePitchToTarget(npc, targetPosition) {
+  const dx = targetPosition.x - npc.position.x;
+  const dy = targetPosition.y - npc.position.y;
+  const dz = targetPosition.z - npc.position.z;
+
+  const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+  return Math.atan2(dy, horizontalDistance);
+}
+
+export function updateNPCPitch(npc, targetPitch, rotationSpeed = 0.1) {
+  if (!npc.pitch) npc.pitch = 0;
+
+  targetPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, targetPitch));
+  const diff = targetPitch - npc.pitch;
+
+  if (Math.abs(diff) > rotationSpeed) {
+    npc.pitch += Math.sign(diff) * rotationSpeed;
+  } else {
+    npc.pitch = targetPitch;
+  }
+
+  return npc.pitch;
+}
+
+//--------------------------------------------------------------//
+//                     Utility Functions
+//--------------------------------------------------------------//
+
+export function resetNPCPhysics(npc) {
+  if (!npc) return;
+  npc.velocity = { x: 0, y: 0, z: 0 };
+  npc.isOnGround = false;
+  npc.pitch = 0;
+}
+
 export function isNPCStuck(npc) {
-    return (
-        !npc.isOnGround && 
-        Math.abs(npc.velocity.y) < 0.001 &&
-        (npc.position.y < 0 || npc.position.y > 100)
-    );
+  if (!npc || !npc.velocity) return false;
+  return (
+    !npc.isOnGround &&
+    Math.abs(npc.velocity.y) < 0.001 &&
+    (npc.position.y < 0 || npc.position.y > 100)
+  );
 }
 
-// Export all functions
+export function canNPCMoveTo(npc, direction, distance = 1, scene) {
+  if (!npc || !direction || !npc.position) return false;
+
+  testPosition.copy(npc.position);
+  testPosition.add(direction.clone().normalize().multiplyScalar(distance));
+
+  return !checkNPCCollision(testPosition, scene).collides;
+}
+
+export function updateNPCPhysics(npc, scene, deltaTime = 1) {
+  if (!npc || !npc.visible || !npc.position) return;
+
+  applyNPCGravity(npc, scene, deltaTime);
+  enforceNPCBoundaries(npc);
+}
+
+//--------------------------------------------------------------//
+//                        Exports
+//--------------------------------------------------------------//
+
 export default {
-    NPC_PHYSICS,
-    applyNPCGravity,
-    makeNPCJump,
-    moveNPC,
-    checkNPCCollision,
-    resetNPCPhysics,
-    isNPCStuck
+  NPC_PHYSICS,
+  applyNPCGravity,
+  makeNPCJump,
+  moveNPC,
+  checkNPCCollision,
+  resetNPCPhysics,
+  isNPCStuck,
+  enforceNPCBoundaries,
+  canNPCMoveTo,
+  updateNPCPhysics,
+  calculatePitchToTarget,
+  updateNPCPitch,
 };

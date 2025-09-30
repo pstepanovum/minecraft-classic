@@ -3,18 +3,18 @@
 // ==============================================================
 
 export const TRAINING_WORLD_CONFIG  = {
-    SEED: 124,
-    SIZE: 50,                     // Smaller world size for NPCs
-    BASE_GROUND_LEVEL: 25,         // Lower base ground level
+    SEED: 2154,
+    SIZE: 32,                     // Smaller world size for NPCs
+    BASE_GROUND_LEVEL: 45,         // Lower base ground level
     TERRAIN_HEIGHT_RANGE: 25,      // Reduced height range for smaller mountains
-    MAX_HEIGHT: 50,                // Lower maximum height
-    WATER_LEVEL: 30,               // Lower water level
-    BIOME_SCALE: 0.01,              // Increased scale to make biomes smaller/more varied
+    MAX_HEIGHT: 100,                // Lower maximum height
+    WATER_LEVEL: 20,               // Lower water level
+    BIOME_SCALE: 0.1,              // Increased scale to make biomes smaller/more varied
     TEMPERATURE_SCALE: 0.006,      // Adjusted for smaller world
-    ELEVATION_SCALE: 0.008,        // Adjusted for smaller world
+    ELEVATION_SCALE: 0.01,        // Adjusted for smaller world
 
     BIOMES: {
-        SCALE: 0.006,              // Increased for smaller biomes
+        SCALE: 0.01,              // Increased for smaller biomes
         TYPES: {
             FOREST: {
                 TREE_DENSITY: 0.8,    // Reduced tree density for easier navigation
