@@ -16,6 +16,8 @@ export function initializeResearchBoundaries(scene, worldConfig) {
   researchBoundarySystem = new ResearchBoundaryWalls(scene, worldConfig);
   researchBoundarySystem.initialize();
 
+  researchBoundarySystem.setDisplayState(0);
+
   return researchBoundarySystem;
 }
 

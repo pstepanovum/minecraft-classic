@@ -1,5 +1,5 @@
 // ==============================================================
-// FILE: research/src/npc/physics/npc-physics.js
+// FILE: research/src/npc/physics/npc-physics.js (REVERTED + MINIMAL COMPATIBILITY FIXES)
 // ==============================================================
 
 import * as GameState from "../../../../../src/core/game-state.js";
@@ -32,8 +32,11 @@ export function applyNPCGravity(npc, scene, deltaTime = 1) {
     npc.isOnGround = false;
   }
 
+  // NOTE: Store previous ground state for checkLanding utility
+  const wasOnGround = npc.isOnGround;
+
   npc.velocity.y = Math.max(
-    npc.velocity.y - NPC_PHYSICS.GRAVITY * deltaTime * 60,
+    npc.velocity.y - NPC_PHYSICS.GRAVITY * deltaTime * 60, // Original scaling
     NPC_PHYSICS.TERMINAL_VELOCITY
   );
 
@@ -53,17 +56,28 @@ export function applyNPCGravity(npc, scene, deltaTime = 1) {
   testPosition.copy(npc.position);
   testPosition.y -= NPC_PHYSICS.GROUND_CHECK_DISTANCE;
 
-  if (!checkNPCCollision(testPosition, scene).collides) {
-    npc.isOnGround = false;
+  if (checkNPCCollision(testPosition, scene).collides) {
+    npc.isOnGround = true;
   }
 
-  return npc.isOnGround;
+  // Return value is now an object for richer state passing
+  return {
+    isOnGround: npc.isOnGround,
+    justLanded: !wasOnGround && npc.isOnGround,
+  };
 }
 
-export function makeNPCJump(npc) {
+/**
+ * Initiates a jump for the NPC.
+ * @param {Object} npc The NPC object.
+ * @param {number} [jumpVelocity] Override for JUMP_SPEED. (ADDED FOR COMPATIBILITY)
+ * @returns {boolean} True if jump initiated.
+ */
+export function makeNPCJump(npc, jumpVelocity = NPC_PHYSICS.JUMP_SPEED) {
   if (!npc.isOnGround || !npc.velocity) return false;
 
-  npc.velocity.y = NPC_PHYSICS.JUMP_SPEED;
+  // Use jumpVelocity argument for compatibility
+  npc.velocity.y = jumpVelocity;
   npc.isOnGround = false;
   return true;
 }
@@ -76,7 +90,7 @@ export function moveNPC(npc, direction, speed, scene, deltaTime = 1) {
   tempVector
     .copy(direction)
     .normalize()
-    .multiplyScalar(speed * deltaTime * 60);
+    .multiplyScalar(speed * deltaTime * 60); // Original scaling
   tempVector.y = 0;
 
   const startPosition = npc.position.clone();
@@ -227,7 +241,7 @@ export function enforceNPCBoundaries(npc) {
 }
 
 //--------------------------------------------------------------//
-//                     Pitch System (NEW - for looking up/down)
+//                     Pitch System
 //--------------------------------------------------------------//
 
 export function calculatePitchToTarget(npc, targetPosition) {
@@ -265,15 +279,6 @@ export function resetNPCPhysics(npc) {
   npc.pitch = 0;
 }
 
-export function isNPCStuck(npc) {
-  if (!npc || !npc.velocity) return false;
-  return (
-    !npc.isOnGround &&
-    Math.abs(npc.velocity.y) < 0.001 &&
-    (npc.position.y < 0 || npc.position.y > 100)
-  );
-}
-
 export function canNPCMoveTo(npc, direction, distance = 1, scene) {
   if (!npc || !direction || !npc.position) return false;
 
@@ -290,6 +295,13 @@ export function updateNPCPhysics(npc, scene, deltaTime = 1) {
   enforceNPCBoundaries(npc);
 }
 
+/**
+ * Utility function to check if the NPC is currently on the ground.
+ */
+export function checkLanding(npc) {
+  return npc.isOnGround;
+}
+
 //--------------------------------------------------------------//
 //                        Exports
 //--------------------------------------------------------------//
@@ -301,10 +313,10 @@ export default {
   moveNPC,
   checkNPCCollision,
   resetNPCPhysics,
-  isNPCStuck,
   enforceNPCBoundaries,
   canNPCMoveTo,
   updateNPCPhysics,
   calculatePitchToTarget,
   updateNPCPitch,
+  checkLanding,
 };

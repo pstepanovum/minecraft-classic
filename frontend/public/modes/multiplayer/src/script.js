@@ -302,7 +302,7 @@ function handlePlayerInfo(playerData) {
     const player = createPlayer(GameState.scene, {
         ...playerData,
         position
-    }, '../../../assets/images/skins/4.png', true);
+    }, '../../../assets/images/skins/1.png', true);
 
     GameState.setPlayer(player);
     GameState.setPlayerLoaded(true);
@@ -518,7 +518,7 @@ function setupSocketConnection() {
     socket.on('newPlayer', (playerData) => {
         console.log('New player joined:', playerData.id);
         if (playerData.id !== socket.id) {
-            const skinPath = '../../../assets/images/skins/4.png';  // Default skin
+            const skinPath = '../../../assets/images/skins/1.png';  // Default skin
             const newPlayer = createPlayer(GameState.scene, playerData, skinPath, false);
             GameState.addOtherPlayer(playerData.id, newPlayer);
             
@@ -618,7 +618,7 @@ function setupSocketConnection() {
         // Add all current players
         players.forEach(playerData => {
             if (playerData.id !== socket.id) {
-                const skinPath = '../../../assets/images/skins/4.png';  // Default skin
+                const skinPath = '../../../assets/images/skins/1.png';  // Default skin
                 const newPlayer = createPlayer(GameState.scene, playerData, skinPath, false);
                 GameState.addOtherPlayer(playerData.id, newPlayer);
             }

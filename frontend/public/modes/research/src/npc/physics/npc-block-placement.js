@@ -9,77 +9,41 @@ export class NPCBlockPlacement {
   constructor() {
     this.maxReachDistance = NPC_BEHAVIOR.BLOCK_PLACEMENT.maxReachDistance;
     this.blockTypes = NPC_BEHAVIOR.BLOCK_PLACEMENT.availableBlockTypes;
-    console.log("NPCBlockPlacement initialized");
+    console.log("NPCBlockPlacement initialized (ML-controlled)");
   }
 
   initializeNPC(npc) {
     npc.blockPlacement = {
-      currentlyPlacing: false,
-      blockCount: 0,
-      cooldownUntil: 0,
-      targetPosition: null,
       blockInventory: this.generateInventory(),
+      lastPlacementTime: 0,
     };
   }
 
+  /**
+   * Generate initial block inventory
+   */
   generateInventory() {
     const inventory = {};
-    const numTypes = 2 + Math.floor(Math.random() * 2);
+    const numTypes = 2 + Math.floor(Math.random() * 2); // 2-3 block types
 
     for (let i = 0; i < numTypes; i++) {
       const blockType =
         this.blockTypes[Math.floor(Math.random() * this.blockTypes.length)];
       inventory[blockType] =
-        (inventory[blockType] || 0) + (3 + Math.floor(Math.random() * 8));
+        (inventory[blockType] || 0) + (3 + Math.floor(Math.random() * 8)); // 3-10 blocks
     }
 
     return inventory;
   }
 
-  // Optional automatic behavior (for showcase)
-  update(npc, scene, deltaTime) {
-    if (!npc.blockPlacement) return;
+  //--------------------------------------------------------------//
+  //                  Triggered Actions Only
+  //--------------------------------------------------------------//
 
-    const now = Date.now();
-    if (now < npc.blockPlacement.cooldownUntil) return;
-
-    if (!npc.blockPlacement.currentlyPlacing) {
-      if (
-        Math.random() <
-        NPC_BEHAVIOR.BLOCK_PLACEMENT.interactionChance * deltaTime
-      ) {
-        npc.blockPlacement.currentlyPlacing = true;
-        npc.blockPlacement.blockCount = 0;
-      }
-      return;
-    }
-
-    if (
-      npc.blockPlacement.blockCount >=
-      NPC_BEHAVIOR.BLOCK_PLACEMENT.maxBlocksPerSession
-    ) {
-      npc.blockPlacement.currentlyPlacing = false;
-      npc.blockPlacement.cooldownUntil =
-        now + NPC_BEHAVIOR.BLOCK_PLACEMENT.cooldownAfterSession;
-      return;
-    }
-
-    if (!npc.blockPlacement.targetPosition) {
-      this.findPlaceToBuild(npc);
-      return;
-    }
-
-    this.lookAtTarget(npc, npc.blockPlacement.targetPosition);
-
-    if (this.isTargetInReachAndView(npc, npc.blockPlacement.targetPosition)) {
-      if (this.placeBlock(npc, npc.blockPlacement.targetPosition)) {
-        npc.blockPlacement.blockCount++;
-      }
-      npc.blockPlacement.targetPosition = null;
-    }
-  }
-
-  // Direct ML trigger - place block at position
+  /**
+   * Place block at target position
+   * Called by NPCMovementController.executeAction(npc, 10)
+   */
   placeBlock(npc, target) {
     if (!target || !target.blockType) return false;
 
@@ -91,8 +55,12 @@ export class NPCBlockPlacement {
       const currentBlock = GameState.getBlockType(x, y, z);
 
       if (currentBlock === 0) {
+        // Check inventory
         if (npc.blockPlacement.blockInventory[target.blockType] > 0) {
+          // Deduct from inventory
           npc.blockPlacement.blockInventory[target.blockType]--;
+
+          // Place block
           GameState.chunkManager?.updateBlock(x, y, z, target.blockType);
 
           if (GameState.isOnline && GameState.socket?.connected) {
@@ -102,6 +70,7 @@ export class NPCBlockPlacement {
             });
           }
 
+          npc.blockPlacement.lastPlacementTime = Date.now();
           return true;
         }
       }
@@ -112,7 +81,13 @@ export class NPCBlockPlacement {
     return false;
   }
 
-  // Find valid placement positions (for ML action space)
+  //--------------------------------------------------------------//
+  //              Perception Helpers (for ML state)
+  //--------------------------------------------------------------//
+
+  /**
+   * Find all valid placement positions (for ML action space)
+   */
   findValidPositions(npc, radius = 5) {
     const positions = [];
     const npcPos = {
@@ -130,8 +105,9 @@ export class NPCBlockPlacement {
 
           try {
             const blockType = GameState.getBlockType(x, y, z);
+            // Must be air and have adjacent block
             if (blockType === 0 && this.hasAdjacentBlock(x, y, z)) {
-              const distance = Math.sqrt(dx * dx + dz * dz);
+              const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
               if (distance <= this.maxReachDistance) {
                 positions.push({ x, y, z });
               }
@@ -146,45 +122,9 @@ export class NPCBlockPlacement {
     return positions;
   }
 
-  findPlaceToBuild(npc) {
-    const searchRadius = 3;
-    const npcPos = {
-      x: Math.floor(npc.position.x),
-      y: Math.floor(npc.position.y),
-      z: Math.floor(npc.position.z),
-    };
-
-    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
-      for (let dy = -1; dy <= 2; dy++) {
-        for (let dz = -searchRadius; dz <= searchRadius; dz++) {
-          const x = npcPos.x + dx;
-          const y = npcPos.y + dy;
-          const z = npcPos.z + dz;
-
-          try {
-            const blockType = GameState.getBlockType(x, y, z);
-            if (blockType === 0 && this.hasAdjacentBlock(x, y, z)) {
-              const availableType = this.getAvailableBlockType(npc);
-              if (availableType) {
-                npc.blockPlacement.targetPosition = {
-                  x,
-                  y,
-                  z,
-                  blockType: availableType,
-                };
-                return true;
-              }
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-      }
-    }
-
-    return false;
-  }
-
+  /**
+   * Check if position has at least one adjacent solid block
+   */
   hasAdjacentBlock(x, y, z) {
     const adjacent = [
       { x: x + 1, y, z },
@@ -208,6 +148,9 @@ export class NPCBlockPlacement {
     return false;
   }
 
+  /**
+   * Get available block type from inventory
+   */
   getAvailableBlockType(npc) {
     const available = Object.entries(npc.blockPlacement.blockInventory)
       .filter(([_, count]) => count > 0)
@@ -218,15 +161,18 @@ export class NPCBlockPlacement {
       : null;
   }
 
-  isTargetInReachAndView(npc, target) {
-    if (!target) return false;
-
-    const dx = target.x - npc.position.x;
-    const dz = target.z - npc.position.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
+  /**
+   * Check if position is within reach and view
+   */
+  isPositionInReachAndView(npc, pos) {
+    const dx = pos.x - npc.position.x;
+    const dy = pos.y - npc.position.y;
+    const dz = pos.z - npc.position.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (distance > this.maxReachDistance) return false;
 
+    // Check if roughly facing the position (within 90° cone)
     const targetDir = new THREE.Vector3(dx, 0, dz).normalize();
     const npcDir = new THREE.Vector3(
       -Math.sin(npc.yaw),
@@ -234,27 +180,24 @@ export class NPCBlockPlacement {
       -Math.cos(npc.yaw)
     ).normalize();
 
-    return targetDir.dot(npcDir) > 0.5;
+    return targetDir.dot(npcDir) > 0.5; // ~60° cone
   }
 
-  lookAtTarget(npc, target) {
-    if (!target) return;
+  /**
+   * Get inventory status (for ML observation)
+   */
+  getInventoryStatus(npc) {
+    return { ...npc.blockPlacement.blockInventory };
+  }
 
-    const dx = target.x - npc.position.x;
-    const dz = target.z - npc.position.z;
-    const targetYaw = Math.atan2(-dx, -dz);
-
-    let currentYaw = npc.yaw;
-    while (currentYaw < -Math.PI) currentYaw += Math.PI * 2;
-    while (currentYaw > Math.PI) currentYaw -= Math.PI * 2;
-
-    let diff = targetYaw - currentYaw;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-
-    const rotationSpeed = 0.1;
-    npc.yaw +=
-      Math.abs(diff) > rotationSpeed ? Math.sign(diff) * rotationSpeed : diff;
+  /**
+   * Get total blocks remaining
+   */
+  getTotalBlocks(npc) {
+    return Object.values(npc.blockPlacement.blockInventory).reduce(
+      (sum, count) => sum + count,
+      0
+    );
   }
 }
 

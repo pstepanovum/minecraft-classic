@@ -665,7 +665,7 @@ export function handleNewPlayer(scene, playerData, skinPath) {
     }
 
     // If player doesn't exist yet, create a new one
-    const player = createPlayer(scene, playerData, skinPath || '../../../images/skins/4.png', false);
+    const player = createPlayer(scene, playerData, skinPath || '../../../images/skins/1.png', false);
     
     // Store the player in GameState
     GameState.addOtherPlayer(playerData.id, player);

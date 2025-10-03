@@ -16,9 +16,10 @@ import { Texture, BlockType } from "../../../src/world/textures.js";
 import { initializeBlockInteractions } from "../../../src/world/block_interactions.js";
 import * as GameState from "../../../src/core/game-state.js";
 import BoundaryIntegration from "../../../src/core/game-state-boundary-integration.js";
-import ResearchBoundaryIntegration from "./core/boundary-integration.js";
+import ResearchBoundaryIntegration from "../src/world/boundary-integration.js";
 import NPCSystem from "../src/npc/npc-system.js";
 import HideSeekUI from "../src/ui/hide-seek-ui.js";
+import { initializeTraining, loadTrainedModel } from "./ml/start-training.js";
 
 //--------------------------------------------------------------//
 //                       Configuration
@@ -260,6 +261,90 @@ function checkAllEntitiesBoundaries() {
   }
 }
 
+//--------------------------------------------------------------//
+//                 ML Training and Loading Logic
+//--------------------------------------------------------------//
+/**
+ * Initializes the ML system and starts a new training session from scratch.
+ * This function is triggered by the UI panel.
+ */
+async function startNewTraining() {
+  if (!npcSystem || !npcSystem.hideSeekManager) {
+    console.error("Cannot start training: NPCSystem not ready.");
+    return;
+  }
+  console.log("Starting new ML training session...");
+  alert(
+    "Starting new training session. The UI may become less responsive. Check the console for progress."
+  );
+
+  try {
+    npcSystem.setGameMode("hide_and_seek");
+    const trainer = await initializeTraining(
+      npcSystem,
+      npcSystem.hideSeekManager,
+      GameState.chunkManager
+    );
+
+    await trainer.train(2000, { visual: true });
+    console.log("✅ Training complete! Models have been saved.");
+    alert("Training session finished!");
+  } catch (err) {
+    console.error("❌ A fatal error occurred during training:", err);
+    alert("A fatal error occurred during training. See console for details.");
+  }
+}
+
+/**
+ * Initializes the ML system and loads a pre-trained model for observation.
+ * This function is triggered by the UI panel.
+ * @param {number} episode The episode number to load.
+ */
+async function loadExistingModel(episode, seekerFiles, hiderFiles) {
+  if (!npcSystem || !npcSystem.hideSeekManager) {
+    console.error("Cannot load model: NPCSystem not ready.");
+    return;
+  }
+  console.log(`Loading pre-trained model from episode ${episode}...`);
+
+  try {
+    npcSystem.setGameMode("hide_and_seek");
+    const trainer = await initializeTraining(
+      npcSystem,
+      npcSystem.hideSeekManager,
+      GameState.chunkManager
+    );
+
+    await loadTrainedModel(trainer, episode, seekerFiles, hiderFiles);
+    console.log(
+      "✅ Model loaded successfully! Starting continuous demonstration."
+    );
+
+    // Store the trainer globally so we can stop it later
+    window.activeTrainer = trainer;
+    window.isRunningDemo = true;
+
+    // Run episodes continuously in a loop
+    const runContinuousDemo = async () => {
+      while (window.isRunningDemo) {
+        console.log("Starting new demonstration episode...");
+        await trainer.runEpisode({ visual: true });
+
+        // Small delay between episodes (optional, adjust as needed)
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      console.log("Demonstration stopped.");
+    };
+
+    runContinuousDemo();
+  } catch (error) {
+    console.error(`❌ Failed to load model from episode ${episode}.`, error);
+    alert(
+      `Could not load the model for episode ${episode}. Please check the console for errors.`
+    );
+  }
+}
+
 function startGameIfReady() {
   if (GameState.isGameReady()) {
     console.log("Starting game...");
@@ -271,19 +356,8 @@ function startGameIfReady() {
       console.log("Generating initial chunks...");
       generateInitialChunk();
 
-      // Initialize block interaction after chunk system is ready
       const blockManager = initializeBlockInteractions(GameState.player);
       GameState.setBlockManager(blockManager);
-
-      // FIX: Start hide and seek game using config values (no hardcoded count!)
-      if (npcSystem) {
-        setTimeout(() => {
-          console.log("Starting Hide and Seek mode...");
-          npcSystem.setGameMode("hide_and_seek");
-          // FIX: Call without parameters - will use config values
-          npcSystem.generateNPCs(); // ✅ Uses config internally
-        }, 2000);
-      }
 
       GameState.publish(GameState.EVENTS.GAME_READY, true);
       animate();
@@ -349,6 +423,9 @@ async function init() {
     GameState.removeLoadingScreen();
 
     startGameIfReady();
+
+    // All automatic ML logic is now removed from here.
+
     setTimeout(GameState.showIntroPopup, 1000);
   } catch (error) {
     console.error("Initialization failed:", error);
@@ -374,13 +451,17 @@ function initializeHideSeekSystem() {
 
   console.log("Initializing Hide and Seek system...");
 
-  // Initialize NPC system
   npcSystem = new NPCSystem(GameState.scene).initialize();
 
-  // Initialize UI (starts hidden, toggle with P key)
-  hideSeekUI = new HideSeekUI(npcSystem);
+  window.npcSystem = npcSystem;
 
-  console.log("Hide and Seek system initialized - Press P to toggle UI panel");
+  // Define the callbacks and pass them to the UI
+  const mlCallbacks = {
+    onStartTraining: startNewTraining,
+    onLoadModel: loadExistingModel,
+  };
+
+  hideSeekUI = new HideSeekUI(npcSystem, mlCallbacks);
 
   return { npcSystem, hideSeekUI };
 }
@@ -401,7 +482,7 @@ function handlePlayerInfo(playerData) {
       ...playerData,
       position,
     },
-    "../../../assets/images/skins/4.png",
+    "../../../assets/images/skins/1.png",
     true
   );
 
@@ -431,7 +512,6 @@ function animate() {
   let updateCounter = 0;
 
   GameState.renderer.setAnimationLoop(() => {
-    // Apply player controls
     if (GameState.playerControls && GameState.player) {
       GameState.playerControls();
       sceneChanged = true;
@@ -443,7 +523,6 @@ function animate() {
       sceneChanged = true;
     }
 
-    // Throttle updates to every 5 frames
     if (updateCounter % 5 === 0) {
       updateMiniMap();
       updateChunk();
@@ -452,7 +531,6 @@ function animate() {
     }
     updateCounter++;
 
-    // Update player light
     const playerLight = GameState.scene.getObjectByProperty(
       "type",
       "PointLight"
@@ -521,8 +599,6 @@ function setupEventListeners() {
       }
     }
 
-    // FIX: Remove individual NPC spawning in hide_and_seek mode
-    // The 'N' key is now disabled when in hide_and_seek mode to prevent IDLE NPCs
     if (e.key.toLowerCase() === "n" && !e.ctrlKey && !e.altKey) {
       if (npcSystem) {
         // FIX: Only allow in non-hide_and_seek modes
@@ -560,53 +636,10 @@ function setupEventListeners() {
 
     if (e.key.toLowerCase() === "]" && !e.ctrlKey && !e.altKey) {
       if (researchBoundarySystem) {
-        const debugEnabled =
+        const newState =
           ResearchBoundaryIntegration.toggleResearchBoundaryDebug();
-        console.log(
-          `Research boundary walls debug ${
-            debugEnabled ? "enabled" : "disabled"
-          }`
-        );
-      }
-    }
-
-    // FIX: Debug controls - use config values instead of hardcoded counts
-    if (e.key.toLowerCase() === "r" && e.ctrlKey) {
-      if (npcSystem) {
-        console.log("Resetting all NPCs");
-        npcSystem.removeAllNPCs();
-        // FIX: Call without parameters to use config
-        npcSystem.generateNPCs(); // Uses config values
-      }
-    }
-
-    if (e.key.toLowerCase() === "m" && e.ctrlKey) {
-      if (npcSystem) {
-        console.log("Forcing seeker behavior");
-        npcSystem.forceSeeker();
-      }
-    }
-
-    if (e.key.toLowerCase() === "t" && e.ctrlKey) {
-      if (npcSystem) {
-        console.log("Forcing hiders to flee");
-        npcSystem.forceHidersToFlee();
-      }
-    }
-
-    // Test NPC containment
-    if (e.key.toLowerCase() === "c" && e.ctrlKey) {
-      if (npcSystem && npcSystem.npcs.length > 0) {
-        console.log("Testing NPC boundary containment...");
-        npcSystem.npcs.forEach((npc, index) => {
-          if (npc && npc.position) {
-            const wasContained =
-              ResearchBoundaryIntegration.enforceNPCContainment(npc);
-            console.log(
-              `NPC ${index}: ${wasContained ? "contained" : "within bounds"}`
-            );
-          }
-        });
+        const stateNames = ["hidden", "semi-transparent", "visible"];
+        console.log(`Research boundary walls: ${stateNames[newState]}`);
       }
     }
   });

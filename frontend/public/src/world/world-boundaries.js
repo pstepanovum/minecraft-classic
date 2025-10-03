@@ -4,10 +4,6 @@
 
 import * as GameState from "../../../../src/core/game-state.js";
 
-/**
- * World Boundary System - Creates invisible collision boundaries at world edges
- * to prevent NPCs and players from falling off the terrain
- */
 export class WorldBoundarySystem {
   constructor(scene, worldConfig) {
     this.scene = scene;
