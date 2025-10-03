@@ -82,6 +82,171 @@ const UV_MAPS = {
     }
 };
 
+// Enhanced Control Button System
+function initializeControlButtons(controls, player) {
+    // Mouse event handlers for desktop
+    function handleMouseDown(buttonId, controlKey) {
+        return (event) => {
+            controls[controlKey] = true;
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.classList.add('highlight');
+            }
+            event.preventDefault();
+        };
+    }
+
+    function handleMouseUp(buttonId, controlKey) {
+        return (event) => {
+            controls[controlKey] = false;
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.classList.remove('highlight');
+            }
+            event.preventDefault();
+        };
+    }
+
+    // Movement controls (WASD equivalent)
+    const movementControls = [
+        { id: 'up', key: 'forward' },
+        { id: 'down', key: 'backward' },
+        { id: 'left', key: 'left' },
+        { id: 'right', key: 'right' }
+    ];
+
+    // Initialize movement buttons
+    movementControls.forEach(({ id, key }) => {
+        const button = document.getElementById(id);
+        if (button) {
+            // Mouse events for desktop
+            button.addEventListener('mousedown', handleMouseDown(id, key));
+            button.addEventListener('mouseup', handleMouseUp(id, key));
+            button.addEventListener('mouseleave', handleMouseUp(id, key)); // Stop if mouse leaves button
+            
+            // Touch events for mobile
+            button.addEventListener('touchstart', handleMouseDown(id, key));
+            button.addEventListener('touchend', handleMouseUp(id, key));
+            button.addEventListener('touchcancel', handleMouseUp(id, key));
+        }
+    });
+
+    // Jump button
+    const jumpButton = document.getElementById('jump');
+    if (jumpButton) {
+        jumpButton.addEventListener('mousedown', handleMouseDown('jump', 'jump'));
+        jumpButton.addEventListener('mouseup', handleMouseUp('jump', 'jump'));
+        jumpButton.addEventListener('mouseleave', handleMouseUp('jump', 'jump'));
+        jumpButton.addEventListener('touchstart', handleMouseDown('jump', 'jump'));
+        jumpButton.addEventListener('touchend', handleMouseUp('jump', 'jump'));
+        jumpButton.addEventListener('touchcancel', handleMouseUp('jump', 'jump'));
+    }
+
+    // Fly toggle button
+    const flyButton = document.getElementById('fly');
+    if (flyButton) {
+        const toggleFly = (event) => {
+            if (player) {
+                player.isFlying = !player.isFlying;
+                const button = document.getElementById('fly');
+                if (button) {
+                    button.classList.toggle('highlight', player.isFlying);
+                    // Change icon based on fly state
+                    const icon = button.querySelector('i');
+                    if (icon) {
+                        icon.className = player.isFlying ? 'fas fa-landing' : 'fas fa-plane';
+                    }
+                }
+                console.log(`Fly mode ${player.isFlying ? 'enabled' : 'disabled'}`);
+            }
+            event.preventDefault();
+        };
+        
+        flyButton.addEventListener('click', toggleFly);
+        flyButton.addEventListener('touchstart', toggleFly);
+    }
+
+    // Place button
+    const placeButton = document.getElementById('place');
+    if (placeButton) {
+        const handlePlace = (event) => {
+            console.log('Place block action');
+            // Add your place block functionality here
+            GameState.publish(GameState.EVENTS.BLOCK_PLACE, {
+                position: player?.position?.clone(),
+                playerId: player?.userData?.id
+            });
+            event.preventDefault();
+        };
+        
+        placeButton.addEventListener('click', handlePlace);
+        placeButton.addEventListener('touchstart', handlePlace);
+    }
+
+    // Add extra controls for sprint and sneak
+    createAdditionalControls(controls, player);
+}
+
+// Create additional control buttons
+function createAdditionalControls(controls, player) {
+    if (document.getElementById('extra-controls')) return;
+
+    const extraControls = document.createElement('div');
+    extraControls.id = 'extra-controls';
+    extraControls.innerHTML = `
+        <div style="position: fixed; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; pointer-events: none;">
+            <button id="sprint" class="control-button" title="Sprint (Shift)" style="pointer-events: auto;">
+                <i class="fas fa-running"></i>
+            </button>
+            <button id="sneak" class="control-button" title="Sneak (Ctrl)" style="pointer-events: auto;">
+                <i class="fas fa-walking"></i>
+            </button>
+            <button id="toggleCollisions" class="control-button" title="Toggle Collisions (C)" style="pointer-events: auto;">
+                <i class="fas fa-shield-alt"></i>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(extraControls);
+
+    // Sprint button
+    const sprintButton = document.getElementById('sprint');
+    if (sprintButton) {
+        sprintButton.addEventListener('mousedown', () => controls.sprint = true);
+        sprintButton.addEventListener('mouseup', () => controls.sprint = false);
+        sprintButton.addEventListener('mouseleave', () => controls.sprint = false);
+        sprintButton.addEventListener('touchstart', () => controls.sprint = true);
+        sprintButton.addEventListener('touchend', () => controls.sprint = false);
+        sprintButton.addEventListener('touchcancel', () => controls.sprint = false);
+    }
+
+    // Sneak button
+    const sneakButton = document.getElementById('sneak');
+    if (sneakButton) {
+        sneakButton.addEventListener('mousedown', () => controls.sneak = true);
+        sneakButton.addEventListener('mouseup', () => controls.sneak = false);
+        sneakButton.addEventListener('mouseleave', () => controls.sneak = false);
+        sneakButton.addEventListener('touchstart', () => controls.sneak = true);
+        sneakButton.addEventListener('touchend', () => controls.sneak = false);
+        sneakButton.addEventListener('touchcancel', () => controls.sneak = false);
+    }
+
+    // Collisions toggle button
+    const collisionsButton = document.getElementById('toggleCollisions');
+    if (collisionsButton) {
+        const toggleCollisions = (event) => {
+            if (player) {
+                player.collisionsEnabled = !player.collisionsEnabled;
+                collisionsButton.classList.toggle('highlight', !player.collisionsEnabled);
+                console.log(`Collisions ${player.collisionsEnabled ? 'enabled' : 'disabled'}`);
+            }
+            event.preventDefault();
+        };
+        
+        collisionsButton.addEventListener('click', toggleCollisions);
+        collisionsButton.addEventListener('touchstart', toggleCollisions);
+    }
+}
+
 export function createPlayer(scene, playerData, textureAtlas, isLocalPlayer) {
     // Create the player group
     const player = new THREE.Group();
@@ -319,6 +484,9 @@ export function addPlayerControls(player, camera, scene, canvas) {
     let isPointerLocked = false;
     const touchPoints = {};
 
+    // Initialize control buttons with mouse support
+    initializeControlButtons(controls, player);
+
     const keyToButtonMap = {
         'w': 'up',
         'a': 'left',
@@ -361,10 +529,22 @@ export function addPlayerControls(player, camera, scene, canvas) {
             switch (key) {
                 case 'f':
                     player.isFlying = !player.isFlying;
+                    const flyButton = document.getElementById('fly');
+                    if (flyButton) {
+                        flyButton.classList.toggle('highlight', player.isFlying);
+                        const icon = flyButton.querySelector('i');
+                        if (icon) {
+                            icon.className = player.isFlying ? 'fas fa-landing' : 'fas fa-plane';
+                        }
+                    }
                     console.log(`Fly mode ${player.isFlying ? 'enabled' : 'disabled'}`);
                     break;
                 case 'c':
                     player.collisionsEnabled = !player.collisionsEnabled;
+                    const collisionsButton = document.getElementById('toggleCollisions');
+                    if (collisionsButton) {
+                        collisionsButton.classList.toggle('highlight', !player.collisionsEnabled);
+                    }
                     console.log(`Collisions ${player.collisionsEnabled ? 'enabled' : 'disabled'}`);
                     break;
             }
@@ -415,11 +595,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
                 // Determine if the touch point is for rotation or movement
                 if (touch.target.classList.contains('control-button')) {
-                    // Handle movement
-                    if (touch.target.id === 'up') controls.forward = true;
-                    if (touch.target.id === 'down') controls.backward = true;
-                    if (touch.target.id === 'left') controls.left = true;
-                    if (touch.target.id === 'right') controls.right = true;
+                    // Handle movement - already handled by button events
                 } else {
                     // Handle rotation
                     player.yaw -= deltaX * MOUSE_LOOK_SENSITIVITY;
@@ -455,53 +631,10 @@ export function addPlayerControls(player, camera, scene, canvas) {
     document.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('click', () => canvas.requestPointerLock());
 
-    // Add event listeners for touch controls
-    function handleTouchStart(buttonId, controlKey) {
-        return (event) => {
-            controls[controlKey] = true;
-            const button = document.getElementById(buttonId);
-            if (button) {
-                button.classList.add('highlight');
-            }
-            event.preventDefault(); // Prevent default zoom behavior
-        };
-    }
-
-    function handleTouchEnd(buttonId, controlKey) {
-        return (event) => {
-            controls[controlKey] = false;
-            const button = document.getElementById(buttonId);
-            if (button) {
-                button.classList.remove('highlight');
-            }
-            event.preventDefault(); // Prevent default zoom behavior
-        };
-    }
-
-    // Initialize touch controls
-    try {
-        document.getElementById('up')?.addEventListener('touchstart', handleTouchStart('up', 'forward'));
-        document.getElementById('up')?.addEventListener('touchend', handleTouchEnd('up', 'forward'));
-        document.getElementById('down')?.addEventListener('touchstart', handleTouchStart('down', 'backward'));
-        document.getElementById('down')?.addEventListener('touchend', handleTouchEnd('down', 'backward'));
-        document.getElementById('left')?.addEventListener('touchstart', handleTouchStart('left', 'left'));
-        document.getElementById('left')?.addEventListener('touchend', handleTouchEnd('left', 'left'));
-        document.getElementById('right')?.addEventListener('touchstart', handleTouchStart('right', 'right'));
-        document.getElementById('right')?.addEventListener('touchend', handleTouchEnd('right', 'right'));
-        document.getElementById('fly')?.addEventListener('touchstart', (event) => {
-            player.isFlying = !player.isFlying;
-            const button = document.getElementById('fly');
-            if (button) {
-                button.classList.add('highlight');
-                setTimeout(() => button.classList.remove('highlight'), 200); // Brief highlight for feedback
-            }
-            event.preventDefault(); // Prevent default zoom behavior
-        });
-        document.getElementById('jump')?.addEventListener('touchstart', handleTouchStart('jump', 'jump'));
-        document.getElementById('jump')?.addEventListener('touchend', handleTouchEnd('jump', 'jump'));
-    } catch (e) {
-        console.warn('Touch controls could not be initialized:', e);
-    }
+    // Ensure canvas focus for keyboard events
+    canvas.addEventListener('click', () => {
+        canvas.focus();
+    });
 
     function updatePlayerMovement() {
         // Check if the player is moving
@@ -533,7 +666,8 @@ export function addPlayerControls(player, camera, scene, canvas) {
     
         // Apply flying or walking movement
         if (player.isFlying) {
-            moveVector.y = (controls.up ? 1 : 0) - (controls.down ? 1 : 0);
+            // Use jump for up, sneak for down when flying
+            moveVector.y = (controls.jump ? 1 : 0) - (controls.sneak ? 1 : 0);
             moveVector.normalize().multiplyScalar(currentSpeed);
             moveVector.applyQuaternion(camera.quaternion);
         } else {
@@ -553,7 +687,7 @@ export function addPlayerControls(player, camera, scene, canvas) {
         // Update camera position 
         camera.position.copy(player.position).add(new THREE.Vector3(0, PLAYER_HEIGHT * 0.6, 0));
     
-        // Network code and event publishing remains the same
+        // Network code and event publishing
         if (GameState.isOnline && GameState.socket && player.userData.id === GameState.socket.id) {
             GameState.socket.emit('playerMove', {
                 position: player.position.clone(),
@@ -586,9 +720,6 @@ export function addPlayerControls(player, camera, scene, canvas) {
 
     return updatePlayerMovement;
 }
-
-
-
 
 //-------------------------- Player Movement --------------------------//
 
@@ -810,5 +941,4 @@ export const PlayerManager = {
     handlePlayerMove,
     handlePlayerDisconnected,
     setupPlayerNetworkHandlers,
-
 };
