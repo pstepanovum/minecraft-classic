@@ -57,6 +57,11 @@ export class HideSeekManager {
     this.countdownStartTime = Date.now();
     this.hidersFound = 0;
     this.gameRunning = true;
+    
+    this.npcs.forEach(npc => {
+      npc.justCaughtHider = false;
+      npc.caughtTime = null;
+    });
   }
 
   assignRoles() {

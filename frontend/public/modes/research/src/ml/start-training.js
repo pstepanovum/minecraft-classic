@@ -12,10 +12,8 @@ export async function initializeTraining(
 ) {
   console.log("Initializing ML training system...");
 
-  // 1. Enable training mode
-  NPC_BEHAVIOR.ML_TRAINING.enabled = true;
+  NPC_BEHAVIOR.TRAINING.enabled = true;
 
-  // ✅ 2. Set chunkManager on npcSystem BEFORE creating trainer
   if (chunkManager) {
     npcSystem.chunkManager = chunkManager;
     console.log("✅ ChunkManager connected to NPCSystem");
@@ -25,7 +23,6 @@ export async function initializeTraining(
 
   const trainer = new TrainingOrchestrator(npcSystem, hideSeekManager);
 
-  // 3. Connect vision system to chunk manager for raycasting
   if (chunkManager) {
     trainer.visionSystem.setChunkManager(chunkManager);
     console.log(
@@ -33,7 +30,7 @@ export async function initializeTraining(
     );
   }
 
-  // ✅ 4. Double-check encoder has chunkManager (redundant but safe)
+  // 4. Double-check encoder has chunkManager
   if (chunkManager && !trainer.encoder.chunkManager) {
     trainer.encoder.chunkManager = chunkManager;
     console.log(
@@ -76,15 +73,12 @@ export async function loadTrainedModel(
   hiderFiles
 ) {
   try {
-    // --- Load Seeker Model ---
     console.log(`Loading SEEKER model for episode ${episode}...`);
 
     if (!seekerFiles || seekerFiles.length === 0) {
       throw new Error("No seeker model files provided");
     }
 
-    // TensorFlow.js expects an array-like object with the files in order: [.json, .weights.bin]
-    // Sort to ensure .json comes before .weights.bin
     const sortedSeekerFiles = Array.from(seekerFiles).sort((a, b) => {
       if (a.name.endsWith(".json")) return -1;
       if (b.name.endsWith(".json")) return 1;

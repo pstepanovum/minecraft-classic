@@ -39,7 +39,7 @@ export class HideSeekUI {
         </div>
         
         <div class="hs-section">
-            <h4>ML TRAINING</h4>
+            <h4>TRAINING</h4>
             <div class="hs-controls">
                 <button id="hs-start-training" class="btn">START NEW TRAINING</button>
                 <div class="hs-load-controls">

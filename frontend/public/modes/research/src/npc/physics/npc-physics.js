@@ -26,7 +26,7 @@ const testPosition = new THREE.Vector3();
 //                        Core Physics
 //--------------------------------------------------------------//
 
-export function applyNPCGravity(npc, scene, deltaTime = 1) {
+export function applyNPCGravity(npc, scene, deltaTime = 0.0333) {
   if (!npc.velocity) {
     npc.velocity = { x: 0, y: 0, z: 0 };
     npc.isOnGround = false;
@@ -82,7 +82,7 @@ export function makeNPCJump(npc, jumpVelocity = NPC_PHYSICS.JUMP_SPEED) {
   return true;
 }
 
-export function moveNPC(npc, direction, speed, scene, deltaTime = 1) {
+export function moveNPC(npc, direction, speed, scene, deltaTime = 0.0333) {
   if (!direction || direction.lengthSq() === 0) {
     return { hasMoved: false, xBlocked: false, zBlocked: false };
   }
@@ -295,7 +295,7 @@ export function canNPCMoveTo(npc, direction, distance = 1, scene) {
   return !checkNPCCollision(testPosition, scene).collides;
 }
 
-export function updateNPCPhysics(npc, scene, deltaTime = 1) {
+export function updateNPCPhysics(npc, scene, deltaTime = 0.0333) {
   if (!npc || !npc.visible || !npc.position) return;
 
   applyNPCGravity(npc, scene, deltaTime);

@@ -30,7 +30,7 @@ class NPCSystem {
     this.hiderCount = 0;
 
     this.settings = {
-      maxNPCs: NPC_BEHAVIOR.MOVEMENT.maxNPCs,
+      maxNPCs: 10,
       spawnDistance: {
         min: 5,
         max: 30,
@@ -286,7 +286,7 @@ class NPCSystem {
     if (!this.active) return;
 
     const now = Date.now();
-    const deltaTime = Math.min((now - this.lastUpdate) / 1000, 0.1);
+    const deltaTime = 0.0333; // ~30 FPS
     this.lastUpdate = now;
 
     // Update game state (detection, win conditions)

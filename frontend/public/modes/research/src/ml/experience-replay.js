@@ -67,7 +67,7 @@ export class ExperienceReplay {
       console.warn(
         `Not enough experiences (have ${this.buffer.length}, need ${batchSize})`
       );
-      return this.buffer.slice(); // Return all available
+      return this.buffer.slice();
     }
 
     const batch = [];

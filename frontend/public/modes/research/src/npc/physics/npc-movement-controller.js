@@ -65,7 +65,7 @@ export class NPCMovementController {
   /**
    * Execute a movement action
    */
-  executeAction(npc, actionIndex, deltaTime = 0.016) {
+  executeAction(npc, actionIndex, deltaTime = 0.0333) {
     const speed = this.getNPCSpeed(npc);
 
     // Setup for intelligent forward movement
@@ -132,16 +132,6 @@ export class NPCMovementController {
       return NPC_BEHAVIOR.PHYSICS.WALK_SPEED;
     }
 
-    if (npc.role === "seeker") {
-      return NPC_BEHAVIOR.HIDE_AND_SEEK.SEEKER.moveSpeed;
-    }
-
-    if (npc.role === "hider") {
-      if (npc.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FLEEING) {
-        return NPC_BEHAVIOR.HIDE_AND_SEEK.HIDER.panicMoveSpeed;
-      }
-      return NPC_BEHAVIOR.HIDE_AND_SEEK.HIDER.stealthMoveSpeed;
-    }
 
     return NPC_BEHAVIOR.PHYSICS.WALK_SPEED;
   }
@@ -671,7 +661,7 @@ export class NPCMovementController {
   /**
    * Update physics and cooldowns (call every frame)
    */
-  updatePhysics(npc, deltaTime = 0.016) {
+  updatePhysics(npc, deltaTime = 0.0333) {
     // Update jump cooldown (Kept from original code)
     if (npc.jumpCooldown > 0) {
       npc.jumpCooldown -= deltaTime;

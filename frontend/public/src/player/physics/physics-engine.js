@@ -47,7 +47,7 @@ export function getPhysicsState(entity) {
 }
 
 // Apply vertical physics (jumping and gravity)
-export function applyVerticalPhysics(entity, controls, scene, deltaTime = 1) {
+export function applyVerticalPhysics(entity, controls, scene, deltaTime = 0.333) {
     const physicsState = getPhysicsState(entity);
     const { isOnGround } = physicsState;
     
@@ -94,7 +94,7 @@ export function applyVerticalPhysics(entity, controls, scene, deltaTime = 1) {
     }
 
     // Apply gravity with delta time
-    const gravityForce = PHYSICS_CONSTANTS.GRAVITY * (deltaTime || 1);
+    const gravityForce = PHYSICS_CONSTANTS.GRAVITY * (0.0333);
     physicsState.yVelocity = Math.max(
         physicsState.yVelocity - gravityForce, 
         PHYSICS_CONSTANTS.TERMINAL_VELOCITY

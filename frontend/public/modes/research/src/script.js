@@ -117,6 +117,9 @@ function initWebWorker() {
           );
         }
         break;
+      case "regenerated":
+        console.log(`✅ [Worker] Terrain regenerated with seed ${e.data.seed}`);
+        break;
       case "error":
         console.error("Chunk generation error:", e.data.error);
         break;

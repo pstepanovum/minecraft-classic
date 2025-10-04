@@ -415,6 +415,39 @@ self.onmessage = async function(e) {
             }
             break;
 
+            case 'regenerate':
+                console.log(`[Worker] 🔄 Regenerating terrain with seed ${e.data.seed}`);
+                
+                // Clear all cached data
+                chunks.clear();
+                modifiedBlocks.clear();
+                
+                // Reinitialize SimplexNoise with new seed
+                simplexNoise = new self.SimplexNoise(e.data.seed);
+                
+                // Reinitialize cave and ore generators with new noise
+                caveGenerator = new CaveGenerator(worldConfig, simplexNoise);
+                oreGenerator = new OreGenerator(worldConfig, simplexNoise);
+                
+                // Reinitialize tree generator with new noise
+                if (schematicHandler) {
+                    treeGenerator = new TreeGenerator(
+                        worldConfig,
+                        client_config,
+                        block_type,
+                        schematicHandler,
+                        simplexNoise
+                    );
+                }
+                
+                console.log(`[Worker] ✅ Terrain regenerated with seed ${e.data.seed}`);
+                
+                self.postMessage({ 
+                    type: 'regenerated', 
+                    seed: e.data.seed 
+                });
+                break;
+
         case 'applyModifications':
             const {
                 modifications

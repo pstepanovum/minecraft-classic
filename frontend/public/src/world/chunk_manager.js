@@ -143,6 +143,56 @@ export class ChunkManager {
         }
     }
 
+    clearAllChunks() {
+        console.log('🧹 Clearing all chunks for terrain regeneration...');
+        
+        // Clear all queues first
+        this.loadingQueue = [];
+        this.unloadQueue = [];
+        this.updateQueue = [];
+        
+        // Remove all chunk meshes from scene
+        this.chunks.forEach((chunkData, key) => {
+            chunkData.meshes.forEach((meshData) => {
+            if (meshData.mesh) {
+                this.scene.remove(meshData.mesh);
+                
+                // Dispose geometry
+                if (meshData.mesh.geometry) {
+                meshData.mesh.geometry.dispose();
+                }
+                
+                // Dispose materials
+                if (meshData.mesh.material) {
+                if (Array.isArray(meshData.mesh.material)) {
+                    meshData.mesh.material.forEach(m => {
+                    if (m.map) m.map.dispose();
+                    m.dispose();
+                    });
+                } else {
+                    if (meshData.mesh.material.map) {
+                    meshData.mesh.material.map.dispose();
+                    }
+                    meshData.mesh.material.dispose();
+                }
+                }
+            }
+            });
+            
+            // Release buffer back to pool
+            if (chunkData.buffer) {
+            this.bufferPool.releaseBuffer(chunkData.buffer);
+            }
+            
+            chunkData.meshes.clear();
+        });
+        
+        // Clear the chunks map
+        this.chunks.clear();
+        
+        console.log('✅ All chunks cleared, ready for new terrain');
+    }
+
     async processQueues() {
         this.isProcessing = true;
         this.processingStartTime = performance.now();
@@ -289,39 +339,40 @@ export class ChunkManager {
     }
 
     handleChunkData(chunk, chunkX, chunkY, chunkZ) {
-        if (!this.createMeshFunction || !this.isChunkInBounds(chunkX, chunkZ)) return;
+    if (!this.createMeshFunction || !this.isChunkInBounds(chunkX, chunkZ)) return;
 
-        const key = `${chunkX},${chunkZ}`;
-        if (!this.chunks.has(key)) return;
+    const key = `${chunkX},${chunkZ}`;
+    if (!this.chunks.has(key)) return;
 
-        const chunkData = this.chunks.get(key);
-        const oldMeshData = chunkData.meshes.get(chunkY);
+    const chunkData = this.chunks.get(key);
+    const oldMeshData = chunkData.meshes.get(chunkY);
 
-        // Remove old mesh if it exists
-        if (oldMeshData && oldMeshData.mesh) {
-            this.scene.remove(oldMeshData.mesh);
-            this.bufferPool.releaseBuffer(oldMeshData.data);
+    if (oldMeshData && oldMeshData.mesh) {
+        this.scene.remove(oldMeshData.mesh);
+        this.bufferPool.releaseBuffer(oldMeshData.data);
+    }
+
+    const meshData = this.createMeshFunction(chunk, chunkX, chunkY, chunkZ);
+    if (meshData) {
+        chunkData.meshes.set(chunkY, {
+        mesh: meshData.mesh,
+        data: chunk
+        });
+        
+        chunkData.lastUpdateTime = Date.now();
+        
+        // ✅ FLAG SCENE AS CHANGED (if you have this flag in your render loop)
+        if (typeof sceneChanged !== 'undefined') {
+        sceneChanged = true;
         }
-
-        // Create new mesh
-        const meshData = this.createMeshFunction(chunk, chunkX, chunkY, chunkZ);
-        if (meshData) {
-            chunkData.meshes.set(chunkY, {
-                mesh: meshData.mesh,
-                data: chunk
-            });
-            
-            // Update timestamp for last chunk update
-            chunkData.lastUpdateTime = Date.now();
-            
-            // Publish chunk loaded event
-            if (GameState) {
-                GameState.publish(GameState.EVENTS.CHUNK_LOADED, {
-                    chunkX, chunkY, chunkZ,
-                    timestamp: chunkData.lastUpdateTime
-                });
-            }
+        
+        if (GameState) {
+        GameState.publish(GameState.EVENTS.CHUNK_LOADED, {
+            chunkX, chunkY, chunkZ,
+            timestamp: chunkData.lastUpdateTime
+        });
         }
+    }
     }
 
     dispose() {

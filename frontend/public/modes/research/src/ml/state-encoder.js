@@ -30,22 +30,35 @@ export class StateEncoder {
     this.encodeVelocity(state, npc.velocity);
     state[this.encoding.onGround.start] = npc.isOnGround ? 1 : 0;
     this.encodeVisualField(state, perceptionData);
-    this.encodeMemory(state, npc.spatialMemory);
+    this.encodeMemory(state, npc);
     this.encodeActionHistory(state, npc.lastAction);
     this.encodeGameInfo(state, gameState);
     this.encodeBoundaryProximity(state, npc, worldSize);
     this.encodeJumpInfo(state, npc, perceptionData);
     this.encodeVoxelNavigation(state, npc);
+    
     if (npc.role === "seeker") {
       this.encodeSeekerInfo(state, npc, perceptionData);
     } else {
       this.encodeHiderInfo(state, npc, perceptionData);
     }
 
+    // Validate state
+    for (let i = 0; i < state.length; i++) {
+      if (!isFinite(state[i])) {
+        console.error(`State encoding NaN/Inf at index ${i}`);
+        state[i] = 0;
+      }
+      if (Math.abs(state[i]) > 10) {
+        console.warn(`State value too large at index ${i}: ${state[i]}`);
+        state[i] = Math.sign(state[i]) * 1.0;
+      }
+    }
+
     return state;
   }
 
-  encodePosition(state, position, worldSize = 512) {
+  encodePosition(state, position, worldSize) {
     const { start } = this.encoding.position;
     state[start] = position.x / worldSize;
     state[start + 1] = position.y / 100;
@@ -69,12 +82,10 @@ export class StateEncoder {
   encodeVisualField(state, perceptionData) {
     const { start, size } = this.encoding.visualField;
 
-    // Initialize to "no detection"
     for (let i = 0; i < size; i++) {
       state[start + i] = 0;
     }
 
-    // Encode raycast data
     if (perceptionData?.raycastData?.rays) {
       const rays = perceptionData.raycastData.rays;
 
@@ -82,14 +93,13 @@ export class StateEncoder {
         const ray = rays[i];
 
         if (ray.hit) {
-          const normalizedDistance = ray.distance / 25;
+          const normalizedDistance = ray.distance / 32;
 
           if (ray.isPlayer) {
-            state[start + i] = normalizedDistance * 0.5 + blockType * 0.01; 
+            state[start + i] = normalizedDistance * 0.5 + 0.01;
           } else {
-            // Block hit
             const blockType = this.encodeBlockType(ray.blockType);
-            state[start + i] = normalizedDistance * 0.5 + blockType * 0.01; // 0.0 to 0.5
+            state[start + i] = normalizedDistance * 0.5 + blockType * 0.01;
           }
         }
       }
@@ -99,12 +109,18 @@ export class StateEncoder {
   encodeBoundaryProximity(state, npc, worldSize) {
     const { start } = this.encoding.boundaryProximity;
     const pos = npc.position;
-    state[start] = pos.z / worldSize;
-    state[start + 1] = pos.x / worldSize;
+    
+    state[start] = pos.x / worldSize;
+    state[start + 1] = (worldSize - pos.x) / worldSize;
+    state[start + 2] = pos.z / worldSize;
+    state[start + 3] = (worldSize - pos.z) / worldSize;
   }
 
   encodeBlockType(blockType) {
-    if (!blockType || blockType === 0) return 0;
+    if (!blockType || blockType === 0) {
+      console.warn("Invalid or empty block type encountered");
+      return 0;
+    }
     const blockMap = {
       8: 0.1,
       9: 0.1,
@@ -119,18 +135,16 @@ export class StateEncoder {
   encodeJumpInfo(state, npc, perceptionData) {
     const { start } = this.encoding.jumpInfo;
 
-    // Default: no obstacle
-    state[start] = 0; // Obstacle ahead requiring jump
-    state[start + 1] = 0; // Obstacle height
-    state[start + 2] = npc.isOnGround ? 1.0 : 0.0; // Can jump now?
-    state[start + 3] = npc.jumpCooldown > 0 ? 1.0 : 0.0; // Jump on cooldown?
+    state[start] = 0;
+    state[start + 1] = 0;
+    state[start + 2] = npc.isOnGround ? 1.0 : 0.0;
+    state[start + 3] = npc.jumpCooldown > 0 ? 1.0 : 0.0;
 
     if (!perceptionData?.raycastData?.rays) return;
 
-    // Check central rays (directly ahead) for close obstacles
     const rays = perceptionData.raycastData.rays;
     const centerIdx = Math.floor(rays.length / 2);
-    const checkRange = 3; // Check 3 rays each side of center
+    const checkRange = 3;
 
     let closestObstacle = Infinity;
     let obstacleDetected = false;
@@ -147,23 +161,67 @@ export class StateEncoder {
     }
 
     if (obstacleDetected) {
-      state[start] = 1.0; // Obstacle present
-      state[start + 1] = Math.max(0, 1.0 - closestObstacle / 2.5); // Closer = higher value
+      state[start] = 1.0;
+      state[start + 1] = Math.max(0, 1.0 - closestObstacle / 2.5);
     }
   }
 
-  encodeMemory(state, spatialMemory) {
-    const { start, size } = this.encoding.memory;
-    if (!spatialMemory || !spatialMemory.chunks) return;
-    for (let i = 0; i < size; i++) {
-      state[start + i] = Math.random() * 0.5; // Placeholder
+  encodeMemory(state, npc) {
+    const { start } = this.encoding.memory;
+    
+    if (!npc.spatialMemory) {
+      npc.spatialMemory = {
+        visitedPositions: [],
+        lastSeenTargetPos: null,
+        lastSeenTargetTime: 0,
+        exploredRegions: new Set()
+      };
+    }
+
+    if (npc.spatialMemory.lastSeenTargetPos) {
+      const timeSinceSeen = Date.now() - npc.spatialMemory.lastSeenTargetTime;
+      const recency = Math.exp(-timeSinceSeen / 10000);
+      
+      state[start] = npc.spatialMemory.lastSeenTargetPos.x / 64;
+      state[start + 1] = npc.spatialMemory.lastSeenTargetPos.z / 64;
+      state[start + 2] = recency;
+    } else {
+      state[start] = 0;
+      state[start + 1] = 0;
+      state[start + 2] = 0;
+    }
+
+    // Encode exploration coverage (4 quadrants)
+    const quadrants = [
+      [0, 32, 0, 32],   // Top-left
+      [32, 64, 0, 32],  // Top-right
+      [0, 32, 32, 64],  // Bottom-left
+      [32, 64, 32, 64]  // Bottom-right
+    ];
+
+    for (let i = 0; i < 4; i++) {
+      const [x1, x2, z1, z2] = quadrants[i];
+      const quadrantKey = `${Math.floor((x1 + x2) / 2)},${Math.floor((z1 + z2) / 2)}`;
+      state[start + 3 + i] = npc.spatialMemory.exploredRegions.has(quadrantKey) ? 1 : 0;
+    }
+
+    const recentPositions = npc.spatialMemory.visitedPositions.slice(-10);
+    for (let i = 0; i < 9; i++) {
+      if (i < recentPositions.length - 1) {
+        const dx = recentPositions[i + 1].x - recentPositions[i].x;
+        const dz = recentPositions[i + 1].z - recentPositions[i].z;
+        const magnitude = Math.sqrt(dx * dx + dz * dz);
+        state[start + 7 + i] = magnitude > 0 ? dx / (magnitude * 10) : 0;
+      } else {
+        state[start + 7 + i] = 0;
+      }
     }
   }
 
   encodeActionHistory(state, lastAction) {
     const { start, size } = this.encoding.actionHistory;
     if (lastAction !== null && lastAction !== undefined) {
-      const actionIdx = Math.min(lastAction, size - 1);
+      const actionIdx = Math.min(Math.max(0, lastAction), size - 1);
       state[start + actionIdx] = 1;
     }
   }
@@ -171,33 +229,24 @@ export class StateEncoder {
   encodeGameInfo(state, gameState) {
     const { start } = this.encoding.gameInfo;
 
-    // Time tracking - critical for game awareness
     const now = Date.now();
     const timeElapsed = now - (gameState.gameStartTime || now);
-    const totalGameTime = 60000; // 60 seconds total game time
+    const totalGameTime = 60000; // 60 seconds
     const timeRemaining = Math.max(0, totalGameTime - timeElapsed);
 
-    // Normalized time remaining (1.0 = full time, 0.0 = time up)
     state[start] = timeRemaining / totalGameTime;
-
-    // Time urgency factor (increases as time runs out)
     state[start + 1] = 1.0 - timeRemaining / totalGameTime;
 
-    // Game progress - hiders found
     const totalHiders = gameState.totalHiders || 2;
     state[start + 2] = (gameState.hidersFound || 0) / totalHiders;
 
-    // Game phase (0 = countdown, 1 = seeking)
     state[start + 3] = gameState.state === "seeking" ? 1 : 0;
-
-    // Critical time marker (1 if less than 20 seconds left)
     state[start + 4] = timeRemaining < 20000 ? 1 : 0;
   }
 
   encodeSeekerInfo(state, npc, perceptionData) {
     const { start } = this.encoding.roleSpecific;
 
-    // Reset
     for (let i = 0; i < 14; i++) {
       state[start + i] = 0;
     }
@@ -209,20 +258,34 @@ export class StateEncoder {
     if (visibleHiders.length > 0) {
       const nearest = visibleHiders[0];
 
-      state[start] = 1.0; // Detection flag
-      state[start + 1] = nearest.direction.x; // Direction X
-      state[start + 2] = nearest.direction.z; // Direction Z
-      state[start + 3] = Math.min(1, nearest.distance / 12); // Normalized distance
-      state[start + 4] = Math.min(1, visibleHiders.length / 2); // Count
+      state[start] = 1.0;
+      state[start + 1] = nearest.direction.x;
+      state[start + 2] = nearest.direction.z;
+      state[start + 3] = Math.min(1, nearest.distance / 12);
+      state[start + 4] = Math.min(1, visibleHiders.length / 2);
+      
+      if (!npc.spatialMemory) {
+        npc.spatialMemory = {
+          visitedPositions: [],
+          lastSeenTargetPos: null,
+          lastSeenTargetTime: 0,
+          exploredRegions: new Set()
+        };
+      }
+      npc.spatialMemory.lastSeenTargetPos = nearest.position.clone();
+      npc.spatialMemory.lastSeenTargetTime = Date.now();
+      
     } else {
-      state[start + 5] = 1.0; // Exploration mode flag
+      state[start + 5] = 1.0;
     }
+    
+    // Update visited positions
+    this.updateSpatialMemory(npc);
   }
 
   encodeHiderInfo(state, npc, perceptionData) {
     const { start } = this.encoding.roleSpecific;
 
-    // Reset
     for (let i = 0; i < 14; i++) {
       state[start + i] = 0;
     }
@@ -235,24 +298,55 @@ export class StateEncoder {
       const nearest = visibleSeekers[0];
       const threatLevel = 1 - nearest.distance / 12;
 
-      state[start] = 1.0; // Detection flag
-      state[start + 1] = nearest.direction.x; // Direction X
-      state[start + 2] = nearest.direction.z; // Direction Z
-      state[start + 3] = Math.min(1, nearest.distance / 12); // Normalized distance
-      state[start + 4] = threatLevel; // Threat level
+      state[start] = 1.0;
+      state[start + 1] = nearest.direction.x;
+      state[start + 2] = nearest.direction.z;
+      state[start + 3] = Math.min(1, nearest.distance / 12);
+      state[start + 4] = threatLevel;
+      
+      // Update spatial memory with threat location
+      if (!npc.spatialMemory) {
+        npc.spatialMemory = {
+          visitedPositions: [],
+          lastSeenTargetPos: null,
+          lastSeenTargetTime: 0,
+          exploredRegions: new Set()
+        };
+      }
+      npc.spatialMemory.lastSeenTargetPos = nearest.position.clone();
+      npc.spatialMemory.lastSeenTargetTime = Date.now();
+      
     } else {
-      state[start + 5] = 1.0; // Safe/hide mode flag
+      state[start + 5] = 1.0;
     }
 
-    // Hiding state
     state[start + 6] = npc.hideSeekState === "HIDDEN" ? 1 : 0;
     state[start + 7] = npc.hideSeekState === "FLEEING" ? 1 : 0;
+    
+    // Update visited positions
+    this.updateSpatialMemory(npc);
+  }
+
+  updateSpatialMemory(npc) {
+    if (!npc.spatialMemory) return;
+    
+    const currentPos = { x: npc.position.x, z: npc.position.z };
+    npc.spatialMemory.visitedPositions.push(currentPos);
+    if (npc.spatialMemory.visitedPositions.length > 10) {
+      npc.spatialMemory.visitedPositions.shift();
+    }
+    
+    // Track explored regions (16x16 grid cells)
+    const gridX = Math.floor(npc.position.x / 16);
+    const gridZ = Math.floor(npc.position.z / 16);
+    npc.spatialMemory.exploredRegions.add(`${gridX},${gridZ}`);
+
+    console.log(`[FROM STATE ENCODER] Explored Regions:`, npc.spatialMemory.exploredRegions);
   }
 
   encodeVoxelNavigation(state, npc) {
     const { start } = this.encoding.voxelNavigation;
 
-    // Direction NPC is facing
     const forward = {
       x: -Math.sin(npc.yaw),
       z: -Math.cos(npc.yaw),
@@ -262,50 +356,43 @@ export class StateEncoder {
     const currentY = Math.floor(npc.position.y);
     const currentZ = Math.floor(npc.position.z);
 
-    // Check 3 distances ahead: 1, 2, 3 blocks
     for (let dist = 1; dist <= 3; dist++) {
       const checkX = Math.floor(currentX + forward.x * dist);
       const checkZ = Math.floor(currentZ + forward.z * dist);
 
-      // Check blocks at different heights relative to NPC
-      const blockAtFeet = this.getBlockAt(checkX, currentY - 1, checkZ); // Ground
-      const blockAtLevel = this.getBlockAt(checkX, currentY, checkZ); // Body height
-      const blockAbove = this.getBlockAt(checkX, currentY + 1, checkZ); // Head height
+      const blockAtFeet = this.getBlockAt(checkX, currentY - 1, checkZ);
+      const blockAtLevel = this.getBlockAt(checkX, currentY, checkZ);
+      const blockAbove = this.getBlockAt(checkX, currentY + 1, checkZ);
 
       const idx = (dist - 1) * 4;
 
-      // Encode what's at this distance
       if (!blockAtFeet && !blockAtLevel) {
-        // DROP-OFF (no ground, dangerous!)
         state[start + idx] = -1;
         state[start + idx + 1] = 0;
         state[start + idx + 2] = 0;
         state[start + idx + 3] = 0;
       } else if (blockAtLevel && !blockAbove) {
-        // 1-BLOCK STEP (need to jump)
         state[start + idx] = 0;
-        state[start + idx + 1] = 1; // Jump needed
+        state[start + idx + 1] = 1;
         state[start + idx + 2] = 0;
         state[start + idx + 3] = 0;
       } else if (blockAtLevel && blockAbove) {
-        // 2-BLOCK WALL (can't pass)
         state[start + idx] = 0;
         state[start + idx + 1] = 0;
-        state[start + idx + 2] = 1; // Wall
+        state[start + idx + 2] = 1;
         state[start + idx + 3] = 0;
       } else {
-        // WALKABLE (clear path)
-        state[start + idx] = 1; // Walkable
+        state[start + idx] = 1;
         state[start + idx + 1] = 0;
         state[start + idx + 2] = 0;
         state[start + idx + 3] = 0;
       }
     }
+    console.log(`[FROM STATE ENCODER] Voxel Navigation State:`, state.slice(start, start + 12));
   }
 
   getBlockAt(worldX, worldY, worldZ) {
     if (!this.chunkManager) {
-      console.warn("ChunkManager not set in StateEncoder");
       return null;
     }
 
@@ -332,17 +419,17 @@ export class StateEncoder {
 
   decodeAction(actionIndex) {
     const actions = [
-      "move_forward", // 0
-      "move_backward", // 1
-      "move_left", // 2
-      "move_right", // 3
-      "jump", // 4
-      "rotate_left", // 5 (was 6)
-      "rotate_right", // 6 (was 7)
-      "rotate_up", // 7 (was 8)
-      "rotate_down", // 8 (was 9)
-      // Crouching (5), place_block (10), and remove_block (11) are removed/ignored
+      "move_forward",
+      "move_backward",
+      "move_left",
+      "move_right",
+      "jump",
+      "rotate_left",
+      "rotate_right",
+      "rotate_up",
+      "rotate_down",
     ];
+    console.log(`[FROM STATE ENCODER] Decoded Action: ${actions[actionIndex] || "unknown"}`);
     return actions[actionIndex] || "unknown";
   }
 }

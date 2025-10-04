@@ -8,10 +8,8 @@ import { StateEncoder } from "../ml/state-encoder.js";
 import { NPC_BEHAVIOR } from "../npc/config-npc-behavior.js";
 import { NPCVisionSystem } from "../npc/physics/npc-vision-system.js";
 import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
+import * as GameState from "../../../../src/core/game-state.js";
 
-// --- Read Adjusted Configuration ---
-const REWARD_CONFIG = NPC_BEHAVIOR.ML_TRAINING.REWARDS;
-const PHYSICS_CONFIG = NPC_BEHAVIOR.PHYSICS;
 
 class TrainingQueue {
   constructor() {
@@ -77,7 +75,7 @@ export class TrainingOrchestrator {
 
     this.movementController = npcSystem.movementController;
 
-    this.config = NPC_BEHAVIOR.ML_TRAINING;
+    this.config = NPC_BEHAVIOR.TRAINING;
     this.worldSize = TRAINING_WORLD_CONFIG.SIZE;
 
     this.seekerAgent = new DQNAgent("seeker");
@@ -90,7 +88,6 @@ export class TrainingOrchestrator {
 
     this.encoder.chunkManager = this.npcSystem.chunkManager;
 
-    // NOTE: Vision config uses values from HIDE_AND_SEEK.SEEKER
     this.visionSystem = new NPCVisionSystem({
       visionRange: 25,
       visionAngle: Math.PI / 2,
@@ -103,11 +100,26 @@ export class TrainingOrchestrator {
     this.globalStep = 0;
     this.metrics = [];
 
+    this.lastSeekerLoss = null;
+    this.lastHiderLoss = null;
+
     this.stateHistory = new Map();
 
     this.actionSize = this.config.MODEL.actionSize;
 
     this.trainingQueue = new TrainingQueue();
+
+    this.useRandomTerrain = false;
+    this.terrainSeeds = [];
+    
+    if (this.useRandomTerrain) {
+      for (let i = 0; i < 100; i++) {
+        this.terrainSeeds.push(Math.floor(Math.random() * 1000000));
+      }
+      console.log(`Generated ${this.terrainSeeds.length} terrain seeds for diversity`);
+    } else {
+      console.log(`Using single terrain (random terrain disabled)`);
+    }
 
     // Track episode statistics
     this.episodeStats = {
@@ -175,7 +187,7 @@ export class TrainingOrchestrator {
   //                  Episode Management
   //--------------------------------------------------------------//
 
-  resetEnvironment() {
+  async resetEnvironment() {
     // Reset episode statistics
     this.episodeStats = {
       totalDistanceTraveled: 0,
@@ -189,15 +201,41 @@ export class TrainingOrchestrator {
       initialSuccessfulJumps: new Map(),
     };
 
+    // Terrain regeneration (if enabled)
+    if (this.useRandomTerrain) {
+      const terrainIndex = this.episode % this.terrainSeeds.length;
+      const terrainSeed = this.terrainSeeds[terrainIndex];
+      console.log(`Episode ${this.episode}: Terrain #${terrainIndex} (seed: ${terrainSeed})`);
+
+      // Send regenerate message to worker
+      if (this.npcSystem.chunkManager?.chunkWorker) {
+        this.npcSystem.chunkManager.chunkWorker.postMessage({
+          type: 'regenerate',
+          seed: terrainSeed
+        });
+        
+        // Clear existing chunks
+        this.npcSystem.chunkManager.clearAllChunks();
+      }
+
+      // Wait for terrain to be ready before spawning NPCs
+      await this.waitForInitialChunks();
+    }
+
+    // End previous game and remove NPCs
     this.hideSeekManager.endGame("episode_reset");
     this.npcSystem.removeAllNPCs();
+    this.lastSeekerLoss = null;
+    this.lastHiderLoss = null;
 
+    // Generate new NPCs
     this.npcSystem.generateNPCs();
 
     const npcs = this.npcSystem.npcs;
 
     this.stateHistory.clear();
     npcs.forEach((npc) => {
+      // Record current movement stats before episode start
       const stats = this.movementController.getMovementStats(npc.userData.id);
       if (stats) {
         this.episodeStats.initialJumpsAttempted.set(
@@ -210,10 +248,12 @@ export class TrainingOrchestrator {
         );
       }
 
+      // Initialize history for GRU (5 steps of state vector)
       this.stateHistory.set(
         npc.userData.id,
         Array.from({ length: 5 }, () => Array(this.encoder.stateSize).fill(0))
       );
+      
       // Initialize NPC tracking variables for reward calculation
       npc.lastPosition = npc.position.clone();
       npc.startPosition = npc.position.clone();
@@ -233,11 +273,91 @@ export class TrainingOrchestrator {
     return npcs;
   }
 
+  async waitForInitialChunks() {
+    const chunkManager = this.npcSystem.chunkManager;
+    if (!chunkManager) {
+      console.warn('No ChunkManager available');
+      return;
+    }
+
+    const worldCenter = this.worldSize / 2;
+    const spawnChunkX = Math.floor(worldCenter / chunkManager.CHUNK_SIZE);
+    const spawnChunkZ = Math.floor(worldCenter / chunkManager.CHUNK_SIZE);
+
+    console.log(`Generating chunks for ${this.worldSize}×${this.worldSize} world...`);
+
+    // ✅ CHANGE: Generate enough chunks to cover the world
+    // For 64×64 world with 16×16 chunks = need 4×4 grid (16 chunks)
+    const chunksNeeded = Math.ceil(this.worldSize / chunkManager.CHUNK_SIZE);
+    const radius = Math.floor(chunksNeeded / 2);
+
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dz = -radius; dz <= radius; dz++) {
+        const chunkX = spawnChunkX + dx;
+        const chunkZ = spawnChunkZ + dz;
+        
+        // Only generate if within bounds
+        if (chunkManager.isChunkInBounds(chunkX, chunkZ)) {
+          chunkManager.generateChunk(chunkX, chunkZ);
+        }
+      }
+    }
+
+    // Wait for meshes (adjust expected count)
+    const expectedMeshes = chunksNeeded * chunksNeeded * 3; // 3 vertical chunks per column
+    
+    return new Promise((resolve) => {
+      const checkInterval = 100;
+      const maxWaitTime = 15000;
+      const startTime = Date.now();
+      
+      const checkMeshes = () => {
+        let meshCount = 0;
+        
+        chunkManager.chunks.forEach((chunkData) => {
+          chunkData.meshes.forEach((meshData) => {
+            if (meshData.mesh && meshData.mesh.parent === this.npcSystem.scene) {
+              meshCount++;
+            }
+          });
+        });
+        
+        const elapsed = Date.now() - startTime;
+        
+        // ✅ CHANGE: Wait for more meshes (at least 50% of expected)
+        if (meshCount >= expectedMeshes * 0.5) {
+          console.log(`✅ Terrain ready: ${meshCount}/${expectedMeshes} meshes in ${elapsed}ms`);
+          
+          if (GameState?.renderer && GameState?.scene && GameState?.camera) {
+            GameState.renderer.render(GameState.scene, GameState.camera);
+          }
+          
+          resolve();
+          return;
+        }
+        
+        if (elapsed > maxWaitTime) {
+          console.warn(`⚠️ Terrain timeout: ${meshCount}/${expectedMeshes} meshes after ${elapsed}ms`);
+          resolve();
+          return;
+        }
+        
+        if (elapsed % 1000 < 100) {
+          console.log(`⏳ Generating terrain... ${meshCount}/${expectedMeshes} meshes`);
+        }
+        
+        setTimeout(checkMeshes, checkInterval);
+      };
+      
+      checkMeshes();
+    });
+  }
+
   /**
    * Run a single episode of the game
    */
   async runEpisode(options) {
-    const npcs = this.resetEnvironment();
+    const npcs = await this.resetEnvironment();
     const npcMap = new Map(npcs.map((n) => [n.userData.id, n]));
 
     const episodeStartTime = Date.now();
@@ -246,6 +366,7 @@ export class TrainingOrchestrator {
     let done = false;
     let seekerRewardTotal = 0;
     let hiderRewardTotal = 0;
+    const npcRewardTotals = {};
 
     // Wait for seeking phase
     while (
@@ -269,7 +390,7 @@ export class TrainingOrchestrator {
 
     // Main episode loop
     while (!done && steps < this.config.TRAINING.maxStepsPerEpisode) {
-      const deltaTime = 0.016;
+      const deltaTime = 0.0333; // ~30 FPS
       const actions = new Map();
       const previousPositions = new Map();
 
@@ -348,7 +469,6 @@ export class TrainingOrchestrator {
         await this.sleep(16);
       }
       let stepReward = 0;
-      let isEpisodeOver = false;
 
       actions.forEach(({ actionIndex, currentEnvState }, npcId) => {
         const npc = npcMap.get(npcId);
@@ -363,16 +483,6 @@ export class TrainingOrchestrator {
         if (!oldPos) return;
 
         let distanceMoved = oldPos.distanceTo(npc.position);
-
-        const MAX_MOVE_PER_STEP = PHYSICS_CONFIG.SPRINT_SPEED * deltaTime * 2;
-        if (distanceMoved > 1.0 || isNaN(distanceMoved)) {
-          console.warn(
-            `[Metrics] Distance moved in one step capped from ${distanceMoved.toFixed(
-              2
-            )} to 1.0. (Intended Max: ${MAX_MOVE_PER_STEP.toFixed(4)})`
-          );
-          distanceMoved = 1.0;
-        }
 
         this.episodeStats.totalDistanceTraveled += distanceMoved;
 
@@ -404,6 +514,7 @@ export class TrainingOrchestrator {
         }
 
         const reward = this.calculateImprovedReward(npc, oldPos);
+        npcRewardTotals[npc.userData.id] = (npcRewardTotals[npc.userData.id] || 0) + reward;
         stepReward += reward;
 
         // Track rewards by role
@@ -429,9 +540,6 @@ export class TrainingOrchestrator {
 
         npc.rewardBuffer = 0;
 
-        if (isDone) {
-          isEpisodeOver = true;
-        }
 
         npc.lastPosition.copy(npc.position);
         npc.lastYaw = npc.yaw;
@@ -481,6 +589,11 @@ export class TrainingOrchestrator {
       }
     });
 
+    this.npcSystem.npcs.forEach(npc => {
+      const bonus = npc.rewardBuffer || 0;
+      npcRewardTotals[npc.userData.id] = (npcRewardTotals[npc.userData.id] || 0) + bonus;
+    });
+
     return {
       episode: this.episode,
       totalReward: totalReward,
@@ -498,6 +611,9 @@ export class TrainingOrchestrator {
       jumpsAttempted: this.episodeStats.jumpsAttempted,
       successfulJumps: this.episodeStats.successfulJumps,
       actionDistribution: this.episodeStats.actionDistribution,
+      seekerLoss: this.lastSeekerLoss,
+      hiderLoss: this.lastHiderLoss,
+      npcRewards: { ...npcRewardTotals },
     };
   }
 
@@ -507,21 +623,15 @@ export class TrainingOrchestrator {
 
   getNPCState(npc) {
     const gameState = this.hideSeekManager.getGameStatus();
-
     const perceptionData = this.visionSystem.getVisionData(
       npc,
       this.npcSystem.npcs
     );
 
-    const movementData = this.movementController.getBlockInventory(npc);
-    const allNPCs = this.npcSystem.npcs;
-
     return this.encoder.encode(
       npc,
       gameState,
       perceptionData,
-      movementData,
-      allNPCs,
       this.worldSize
     );
   }
@@ -535,16 +645,30 @@ export class TrainingOrchestrator {
   }
 
   async trainAgents() {
-    await this.trainingQueue.scheduleTraining(
-      this.seekerAgent,
-      this.seekerMemory,
-      this.stateHistory
-    );
-    await this.trainingQueue.scheduleTraining(
-      this.hiderAgent,
-      this.hiderMemory,
-      this.stateHistory
-    );
+    try {
+      const [seekerLoss, hiderLoss] = await Promise.all([
+        this.trainingQueue.scheduleTraining(
+          this.seekerAgent,
+          this.seekerMemory,
+          this.stateHistory
+        ),
+        this.trainingQueue.scheduleTraining(
+          this.hiderAgent,
+          this.hiderMemory,
+          this.stateHistory
+        )
+      ]);
+
+      // Store losses for logging
+      if (seekerLoss !== null && !isNaN(seekerLoss)) {
+        this.lastSeekerLoss = seekerLoss;
+      }
+      if (hiderLoss !== null && !isNaN(hiderLoss)) {
+        this.lastHiderLoss = hiderLoss;
+      }
+    } catch (error) {
+      console.error("Error during agent training:", error);
+    }
   }
 
   isEpisodeDone(npc) {
@@ -620,14 +744,14 @@ export class TrainingOrchestrator {
           reward += 2.0;
 
           if (npc.lastDistanceToHider !== null) {
-            const distanceDelta =
-              npc.lastDistanceToHider - nearestHider.distance;
-            reward += Math.max(-0.5, Math.min(0.5, distanceDelta * 0.2));
+            const distanceDelta = npc.lastDistanceToHider - nearestHider.distance;
+            reward += distanceDelta * 2.0;
           }
+
           npc.lastDistanceToHider = nearestHider.distance;
 
           if (nearestHider.distance < 3) {
-            reward += 1.0;
+            reward += 10.0;
           }
           if (nearestHider.distance < 2) {
             reward += 2.0;
@@ -721,8 +845,7 @@ export class TrainingOrchestrator {
         const nearestSeeker = visibleSeekers[0];
 
         // Danger penalty
-        const dangerLevel = Math.max(0, 1 - nearestSeeker.distance / 12);
-        reward -= dangerLevel * 0.5;
+        reward -= -0.5;
 
         // Escape rewards
         if (npc.lastDistanceToSeeker !== null) {
@@ -738,8 +861,8 @@ export class TrainingOrchestrator {
         }
 
         // Critical danger
-        if (nearestSeeker.distance < 3) {
-          reward -= 0.5;
+        if (nearestSeeker.distance < 10) {
+          reward -= 10.0;
         }
       } else {
         // Safe for now
@@ -764,7 +887,7 @@ export class TrainingOrchestrator {
         const chunkKey = `${chunkX},${chunkZ}`;
 
         if (!npc.exploredChunks.has(chunkKey)) {
-          reward += 0.1;
+          reward += 0.05;
           npc.exploredChunks.add(chunkKey);
         }
       }
@@ -881,7 +1004,7 @@ export class TrainingOrchestrator {
   }
 
   //--------------------------------------------------------------//
-  //                  Enhanced Metrics and Logging
+  //                   Metrics and Logging
   //--------------------------------------------------------------//
 
   logDetailedMetrics(metrics) {
@@ -918,6 +1041,48 @@ export class TrainingOrchestrator {
     );
     console.log(`└────────────────────────────────────────────┘`);
 
+    // Training Loss
+    console.log(`┌─ Training Loss ────────────────────────────┐`);
+    const seekerLossStr = metrics.seekerLoss !== null && !isNaN(metrics.seekerLoss)
+      ? metrics.seekerLoss.toFixed(4)
+      : "N/A";
+    const hiderLossStr = metrics.hiderLoss !== null && !isNaN(metrics.hiderLoss)
+      ? metrics.hiderLoss.toFixed(4)
+      : "N/A";
+    console.log(`│ Seeker Loss:      ${pad(seekerLossStr, 10)}           │`);
+    console.log(`│ Hider Loss:       ${pad(hiderLossStr, 10)}           │`);
+    console.log(`└────────────────────────────────────────────┘`);
+
+    // Per-NPC Rewards
+    if (metrics.npcRewards && Object.keys(metrics.npcRewards).length > 0) {
+      console.log(`┌─ Per-NPC Rewards ──────────────────────────┐`);
+      Object.entries(metrics.npcRewards).forEach(([id, reward]) => {
+        const displayId = id.length > 12 ? id.substring(0, 12) + "…" : id.padEnd(12);
+        console.log(`│ ${displayId}: ${pad(reward.toFixed(2), 10)}           │`);
+      });
+      console.log(`└────────────────────────────────────────────┘`);
+    }
+
+    // ➕ NEW: Experience Replay Buffer Stats
+    console.log(`┌─ Memory Buffer ────────────────────────────┐`);
+    const seekerStats = this.seekerMemory.getStats();
+    const hiderStats = this.hiderMemory.getStats();
+    console.log(`│ Seeker Buffer:    ${pad(seekerStats.utilization, 10)} (${seekerStats.size}/${seekerStats.capacity}) │`);
+    console.log(`│ Hider Buffer:     ${pad(hiderStats.utilization, 10)} (${hiderStats.size}/${hiderStats.capacity}) │`);
+    console.log(`│ Seeker Avg Rwd:   ${pad(seekerStats.avgReward, 10)}           │`);
+    console.log(`│ Hider Avg Rwd:    ${pad(hiderStats.avgReward, 10)}           │`);
+    console.log(`└────────────────────────────────────────────┘`);
+
+    // ➕ NEW: Reward Range Check (detect unclipped rewards)
+    const allRewards = Object.values(metrics.npcRewards || {});
+    const minReward = Math.min(...allRewards, 0);
+    const maxReward = Math.max(...allRewards, 0);
+    if (minReward < -10 || maxReward > 10) {
+      console.warn(
+        `⚠️  REWARD OUT OF CLIPPED RANGE! Min: ${minReward.toFixed(2)}, Max: ${maxReward.toFixed(2)}`
+      );
+    }
+
     // Exploration metrics
     console.log(`┌─ Exploration ──────────────────────────────┐`);
     console.log(
@@ -951,6 +1116,19 @@ export class TrainingOrchestrator {
     );
     console.log(`└────────────────────────────────────────────┘`);
 
+    // ➕ NEW: Action Distribution Imbalance Check
+    const totalActions = metrics.actionDistribution.reduce((a, b) => a + b, 0);
+    if (totalActions > 0) {
+      const maxActionPct = Math.max(...metrics.actionDistribution.map(c => (c / totalActions) * 100));
+      if (maxActionPct > 70) {
+        const dominantIdx = metrics.actionDistribution.indexOf(Math.max(...metrics.actionDistribution));
+        const actionNames = ["Fwd","Back","Left","Right","Jump","RotL","RotR","RotU","RotD"];
+        console.warn(
+          `⚠️  ACTION IMBALANCE! "${actionNames[dominantIdx]}" used ${maxActionPct.toFixed(1)}% of the time`
+        );
+      }
+    }
+
     // Action distribution
     console.log(`┌─ Action Distribution ──────────────────────┐`);
     const actionNames = [
@@ -964,11 +1142,9 @@ export class TrainingOrchestrator {
       "Rot.Up",
       "Rot.Down",
     ];
-    const totalActions = metrics.actionDistribution.reduce((a, b) => a + b, 0);
-
     metrics.actionDistribution.forEach((count, idx) => {
-      const percentage = ((count / totalActions) * 100).toFixed(1);
-      const bar = "█".repeat(Math.floor(percentage / 2));
+      const percentage = totalActions > 0 ? ((count / totalActions) * 100).toFixed(1) : "0.0";
+      const bar = "█".repeat(Math.floor(parseFloat(percentage) / 2));
       console.log(
         `│ ${actionNames[idx].padEnd(10)}: ${bar.padEnd(20)} ${pad(
           percentage + "%",

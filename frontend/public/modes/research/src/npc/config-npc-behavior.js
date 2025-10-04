@@ -7,11 +7,11 @@ export const NPC_BEHAVIOR = {
   //                    Core Physics System
   //--------------------------------------------------------------//
   PHYSICS: {
-    JUMP_SPEED: 0.25,
-    GRAVITY: 0.015,
-    TERMINAL_VELOCITY: -3.0,
-    WALK_SPEED: 0.075,
-    SPRINT_SPEED: 0.12,
+    JUMP_SPEED: 0.15,
+    GRAVITY: 0.008,
+    TERMINAL_VELOCITY: -3,
+    WALK_SPEED: 0.0697,
+    SPRINT_SPEED: 0.112,
     SNEAK_SPEED: 0.04,
 
     // Collision detection
@@ -38,17 +38,6 @@ export const NPC_BEHAVIOR = {
   },
 
   //--------------------------------------------------------------//
-  //                   Basic Movement System
-  //--------------------------------------------------------------//
-  MOVEMENT: {
-    directionChangeTimeMin: 2000,
-    directionChangeTimeMax: 5000,
-    spawnDistanceMin: 15,
-    spawnDistanceMax: 25,
-    maxNPCs: 12,
-  },
-
-  //--------------------------------------------------------------//
   //                 Hide and Seek Game
   //--------------------------------------------------------------//
   HIDE_AND_SEEK: {
@@ -59,22 +48,12 @@ export const NPC_BEHAVIOR = {
 
     // Seeker behavior
     SEEKER: {
-      visionRange: 25,
-      visionAngle: Math.PI / 2,
       detectionTime: 400,
-      moveSpeed: 0.15,
-      memoryTime: 8000,
-      giveUpTime: 12000,
       visualIndicatorColor: 0xff4444,
     },
 
     // Hider behavior
     HIDER: {
-      hideRange: 30,
-      fleeDistance: 10,
-      stealthMoveSpeed: 0.1,
-      panicMoveSpeed: 0.2,
-      hidingTime: 8000,
       visualIndicatorColor: 0x44ff44,
     },
   },
@@ -105,7 +84,7 @@ export const NPC_BEHAVIOR = {
   //--------------------------------------------------------------//
   //              TRAINING CONFIGURATION
   //--------------------------------------------------------------//
-  ML_TRAINING: {
+  TRAINING: {
     enabled: true,
 
     // Model configuration
@@ -116,16 +95,16 @@ export const NPC_BEHAVIOR = {
       epsilon: 1.0,
       epsilonDecay: 0.999,
       epsilonMin: 0.05,
-      batchSize: 64,
-      memorySize: 100000,
+      batchSize: 32,
+      memorySize: 10000,
     },
 
     // Training parameters
     TRAINING: {
       episodes: 2000,
       maxStepsPerEpisode: 3000,
-      updateFrequency: 2,
-      targetUpdateFrequency: 100,
+      updateFrequency: 10,
+      targetUpdateFrequency: 2000,
       saveFrequency: 50,
       validationFrequency: 10,
     },
