@@ -46,8 +46,6 @@ export const NPC_BEHAVIOR = {
     spawnDistanceMin: 15,
     spawnDistanceMax: 25,
     maxNPCs: 12,
-    jumpChance: 0.15,
-    stuckDetectionTime: 3000,
   },
 
   //--------------------------------------------------------------//
@@ -61,7 +59,7 @@ export const NPC_BEHAVIOR = {
 
     // Seeker behavior
     SEEKER: {
-      visionRange: 15,
+      visionRange: 25,
       visionAngle: Math.PI / 2,
       detectionTime: 400,
       moveSpeed: 0.15,
@@ -125,7 +123,7 @@ export const NPC_BEHAVIOR = {
     // Training parameters
     TRAINING: {
       episodes: 2000,
-      maxStepsPerEpisode: 2000,
+      maxStepsPerEpisode: 3000,
       updateFrequency: 2,
       targetUpdateFrequency: 100,
       saveFrequency: 50,

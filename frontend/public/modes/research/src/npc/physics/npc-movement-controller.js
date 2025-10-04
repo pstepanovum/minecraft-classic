@@ -1,5 +1,5 @@
 // ==============================================================
-// FILE: research/src/npc/physics/npc-movement-controller-improved.js
+// FILE: research/src/npc/physics/npc-movement-controller.js
 // ==============================================================
 
 /**
@@ -11,14 +11,12 @@ import { NPC_BEHAVIOR } from "../config-npc-behavior.js";
 import { NPCBlockRemoval } from "./npc-block-removal.js";
 import { NPCBlockPlacement } from "./npc-block-placement.js";
 
-// Utility for mapping world to chunk coords
 const CHUNK_SIZE = 16;
 
 export class NPCMovementController {
-  // CRITICAL ADDITION: Accepting chunkManager for obstacle checks
   constructor(scene, chunkManager) {
     this.scene = scene;
-    this.chunkManager = chunkManager; // Required for checkForObstacles
+    this.chunkManager = chunkManager;
 
     this.blockRemoval = new NPCBlockRemoval();
     this.blockPlacement = new NPCBlockPlacement();

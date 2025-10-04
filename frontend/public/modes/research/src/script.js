@@ -451,7 +451,7 @@ function initializeHideSeekSystem() {
 
   console.log("Initializing Hide and Seek system...");
 
-  npcSystem = new NPCSystem(GameState.scene).initialize();
+  npcSystem = new NPCSystem(GameState.scene, GameState.chunkManager).initialize();
 
   window.npcSystem = npcSystem;
 

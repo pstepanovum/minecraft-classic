@@ -13,8 +13,9 @@ import NPCMovementController from "./physics/npc-movement-controller.js";
 window.NPCPhysics = NPCPhysics;
 
 class NPCSystem {
-  constructor(scene) {
+  constructor(scene, chunkManager) {
     this.scene = scene;
+    this.chunkManager = chunkManager;
     this.npcs = [];
     this.npcCount = 0;
     this.active = false;
@@ -22,7 +23,7 @@ class NPCSystem {
 
     this.hideSeekManager = new HideSeekManager(scene);
     this.lastUpdate = Date.now();
-    this.movementController = new NPCMovementController(scene);
+    this.movementController = new NPCMovementController(scene, chunkManager);
 
     // Role counters for naming
     this.seekerCount = 0;
@@ -31,8 +32,8 @@ class NPCSystem {
     this.settings = {
       maxNPCs: NPC_BEHAVIOR.MOVEMENT.maxNPCs,
       spawnDistance: {
-        min: NPC_BEHAVIOR.MOVEMENT.spawnDistanceMin,
-        max: NPC_BEHAVIOR.MOVEMENT.spawnDistanceMax,
+        min: 5,
+        max: 30,
       },
     };
 

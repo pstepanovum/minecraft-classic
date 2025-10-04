@@ -92,8 +92,8 @@ export class TrainingOrchestrator {
 
     // NOTE: Vision config uses values from HIDE_AND_SEEK.SEEKER
     this.visionSystem = new NPCVisionSystem({
-      visionRange: NPC_BEHAVIOR.HIDE_AND_SEEK.SEEKER.visionRange,
-      visionAngle: NPC_BEHAVIOR.HIDE_AND_SEEK.SEEKER.visionAngle,
+      visionRange: 25,
+      visionAngle: Math.PI / 2,
       rayCount: 64,
       rayPrecisionAngle: 0.2,
       debug: false,
@@ -189,18 +189,15 @@ export class TrainingOrchestrator {
       initialSuccessfulJumps: new Map(),
     };
 
-    // 1. End previous game and remove NPCs (if any)
     this.hideSeekManager.endGame("episode_reset");
     this.npcSystem.removeAllNPCs();
 
-    // 2. Generate new NPCs, assign roles, and start countdown
     this.npcSystem.generateNPCs();
 
     const npcs = this.npcSystem.npcs;
 
     this.stateHistory.clear();
     npcs.forEach((npc) => {
-      // CRITICAL: Record current movement stats before episode start
       const stats = this.movementController.getMovementStats(npc.userData.id);
       if (stats) {
         this.episodeStats.initialJumpsAttempted.set(
@@ -213,7 +210,6 @@ export class TrainingOrchestrator {
         );
       }
 
-      // Initialize history for GRU (5 steps of state vector)
       this.stateHistory.set(
         npc.userData.id,
         Array.from({ length: 5 }, () => Array(this.encoder.stateSize).fill(0))
@@ -284,6 +280,14 @@ export class TrainingOrchestrator {
         const currentEnvState = this.getNPCState(npc);
         const stateSequence = this.stateHistory.get(npc.userData.id);
 
+        if (steps % 100 === 0) {
+          const perceptionData = this.visionSystem.getVisionData(
+            npc,
+            this.npcSystem.npcs
+          );
+          this.visionSystem.logVisionState(npc, perceptionData);
+        }
+
         const action = this.selectAction(npc, stateSequence);
         actions.set(npc.userData.id, {
           actionIndex: action,
@@ -303,15 +307,10 @@ export class TrainingOrchestrator {
         actions.forEach(({ actionIndex }, npcId) => {
           const npc = npcMap.get(npcId);
           if (npc && npc.hideSeekState !== NPC_BEHAVIOR.GAME_STATES.FOUND) {
-            if (actionIndex === 4) {
-              this.episodeStats.jumpsAttempted++;
-            }
-
             this.movementController.executeAction(npc, actionIndex, deltaTime);
           }
         });
 
-        // APPLY PHYSICS to ALL NPCs simultaneously
         npcs.forEach((npc) => {
           if (npc.hideSeekState !== NPC_BEHAVIOR.GAME_STATES.FOUND) {
             this.movementController.updatePhysics(npc, deltaTime);
@@ -355,10 +354,7 @@ export class TrainingOrchestrator {
         const npc = npcMap.get(npcId);
         if (!npc) return;
 
-        if (
-          npc.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FOUND &&
-          npc.isMoving
-        ) {
+        if (npc.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FOUND) {
           npc.isMoving = false;
           return;
         }
@@ -366,13 +362,10 @@ export class TrainingOrchestrator {
         const oldPos = previousPositions.get(npcId);
         if (!oldPos) return;
 
-        // === POST-PHYSICS TRACKING ===
         let distanceMoved = oldPos.distanceTo(npc.position);
 
-        // FIX B: Cap distanceMoved to prevent log lies from NaN/Infinity
-        const MAX_MOVE_PER_STEP = PHYSICS_CONFIG.SPRINT_SPEED * deltaTime * 2; // Using SPRINT_SPEED for max possible
+        const MAX_MOVE_PER_STEP = PHYSICS_CONFIG.SPRINT_SPEED * deltaTime * 2;
         if (distanceMoved > 1.0 || isNaN(distanceMoved)) {
-          // 1.0 block is max reasonable
           console.warn(
             `[Metrics] Distance moved in one step capped from ${distanceMoved.toFixed(
               2
@@ -588,64 +581,62 @@ export class TrainingOrchestrator {
       gameStatus.timeLimit - gameStatus.gameTime
     );
     const timeProgress = gameStatus.gameTime / gameStatus.timeLimit;
-    const urgencyFactor = Math.min(1.0, timeProgress * 2); // Increases urgency over time
+    const urgencyFactor = Math.min(1.0, timeProgress * 2);
+
+    // Track recent actions for spam detection
+    if (!npc.recentActions) npc.recentActions = [];
+    if (npc.lastAction !== null && npc.lastAction !== undefined) {
+      npc.recentActions.push(npc.lastAction);
+      if (npc.recentActions.length > 10) npc.recentActions.shift();
+    }
 
     if (npc.role === "seeker") {
-      const R = REWARD_CONFIG.SEEKER;
-
       // ========== SEEKER REWARDS ==========
 
-      // TIME-BASED PRESSURE - Seekers need to find hiders quickly
+      // TIME-BASED PRESSURE
       if (timeRemaining < 20000 && this.hideSeekManager.hidersFound === 0) {
-        // Urgency penalty increases as time runs out
         reward -= 0.05 * urgencyFactor;
       }
 
       // EXPLORATION AND MOVEMENT
       if (distanceMoved > 0.05) {
-        reward += 0.02; // Small movement bonus
+        reward += 0.02;
 
-        // New area exploration
         const chunkX = Math.floor(npc.position.x / 4);
         const chunkZ = Math.floor(npc.position.z / 4);
         const chunkKey = `${chunkX},${chunkZ}`;
 
         if (!npc.exploredChunks.has(chunkKey)) {
-          reward += 0.2; // Explore new areas
+          reward += 0.2;
           npc.exploredChunks.add(chunkKey);
         }
       }
 
-      // TARGET TRACKING - Main seeker objective
+      // TARGET TRACKING
       if (visibleNPCs.length > 0) {
         const nearestHider = visibleNPCs.find((h) => h.role === "hider");
 
         if (nearestHider) {
-          // Found a hider! Big reward
           reward += 2.0;
 
-          // Approach reward based on distance change
           if (npc.lastDistanceToHider !== null) {
             const distanceDelta =
               npc.lastDistanceToHider - nearestHider.distance;
-            // Reward for getting closer, penalty for moving away
             reward += Math.max(-0.5, Math.min(0.5, distanceDelta * 0.2));
           }
           npc.lastDistanceToHider = nearestHider.distance;
 
-          // Extra reward when very close (catching range)
           if (nearestHider.distance < 3) {
-            reward += 1.0; // Close to catching!
+            reward += 1.0;
           }
           if (nearestHider.distance < 2) {
-            reward += 2.0; // About to catch!
+            reward += 2.0;
           }
         }
       } else {
-        // Not seeing anyone - encourage searching
         npc.lastDistanceToHider = null;
 
-        // Small reward for rotation (scanning)
+        // Scanning reward
         if (npc.lastYaw !== undefined) {
           const rotationAmount = Math.abs(npc.yaw - npc.lastYaw);
           if (rotationAmount > 0.1) {
@@ -658,7 +649,6 @@ export class TrainingOrchestrator {
       if (npc.lastAction === 4) {
         const heightGain = npc.position.y - oldPos.y;
 
-        // Check if jump was necessary
         if (perceptionData?.raycastData?.rays) {
           const centerRays = perceptionData.raycastData.rays.slice(30, 34);
           const hasObstacle = centerRays.some(
@@ -666,7 +656,7 @@ export class TrainingOrchestrator {
           );
 
           if (hasObstacle && heightGain > 0.1) {
-            reward += 0.1; // Good jump over obstacle
+            reward += 0.1; // Good obstacle jump
           } else if (!hasObstacle) {
             reward -= 0.02; // Unnecessary jump
           }
@@ -683,17 +673,27 @@ export class TrainingOrchestrator {
         npc.consecutiveStationary = 0;
       }
 
-      // Boundary penalty
+      // BOUNDARY PENALTY
       if (npc.boundaryCollision) {
+        reward -= 0.3;
+        npc.boundaryHits = (npc.boundaryHits || 0) + 1;
+        if (npc.boundaryHits > 10) {
+          reward -= 0.5; // Camping penalty
+        }
+      } else {
+        npc.boundaryHits = 0;
+      }
+
+      // JUMP SPAM PENALTY
+      const recentJumps = npc.recentActions.filter(a => a === 4).length;
+      if (recentJumps > 5) {
         reward -= 0.1;
       }
 
-      // EPISODE COMPLETION BONUS (applied at catch time)
+      // CATCH BONUS
       if (npc.justCaughtHider) {
         const timeBonus = (1.0 - timeProgress) * 10;
         reward += 5.0 + timeBonus;
-
-        // Improved log message
         console.log(
           `[SEEKER CATCH BONUS] +${(5.0 + timeBonus).toFixed(
             2
@@ -701,18 +701,18 @@ export class TrainingOrchestrator {
         );
         npc.justCaughtHider = false;
       }
+
     } else if (npc.role === "hider") {
-      const R = REWARD_CONFIG.HIDER;
-
       // ========== HIDER REWARDS ==========
-      reward += 0.02; // Base survival reward per step
 
-      // Bonus for surviving longer
+      reward += 0.02; // Base survival
+
+      // Survival milestones
       if (timeProgress > 0.5) {
-        reward += 0.03; // Extra for making it past halfway
+        reward += 0.03;
       }
       if (timeProgress > 0.75) {
-        reward += 0.05; // Even more for last quarter
+        reward += 0.05;
       }
 
       const visibleSeekers = visibleNPCs.filter((n) => n.role === "seeker");
@@ -720,7 +720,7 @@ export class TrainingOrchestrator {
       if (visibleSeekers.length > 0) {
         const nearestSeeker = visibleSeekers[0];
 
-        // DANGER! Penalty scales with proximity
+        // Danger penalty
         const dangerLevel = Math.max(0, 1 - nearestSeeker.distance / 12);
         reward -= dangerLevel * 0.5;
 
@@ -728,37 +728,36 @@ export class TrainingOrchestrator {
         if (npc.lastDistanceToSeeker !== null) {
           const distanceDelta =
             nearestSeeker.distance - npc.lastDistanceToSeeker;
-          // Reward for escaping, penalty for being chased down
           reward += Math.max(-0.3, Math.min(0.3, distanceDelta * 0.15));
         }
         npc.lastDistanceToSeeker = nearestSeeker.distance;
 
         // Movement while in danger
         if (distanceMoved > 0.1) {
-          reward += 0.05; // Good to move when spotted
+          reward += 0.05;
         }
 
-        // Critical danger zone
+        // Critical danger
         if (nearestSeeker.distance < 3) {
-          reward -= 0.5; // Very dangerous!
+          reward -= 0.5;
         }
       } else {
         // Safe for now
         npc.lastDistanceToSeeker = null;
-        reward += 0.05; // Small safety bonus
+        reward += 0.05;
 
-        // Still encourage some movement to find better spots
+        // Encourage strategic movement
         if (distanceMoved > 0.05 && distanceMoved < 0.15) {
           reward += 0.02;
         }
 
-        // Reward for finding elevated positions (harder to catch)
-        if (npc.position.y > npc.startPosition.y + 2) {
+        // Elevation bonus (only if moving)
+        if (npc.position.y > npc.startPosition.y + 2 && distanceMoved > 0.05) {
           reward += 0.1;
         }
       }
 
-      // Exploration for hiders (finding hiding spots)
+      // Exploration
       if (distanceMoved > 0.05) {
         const chunkX = Math.floor(npc.position.x / 4);
         const chunkZ = Math.floor(npc.position.z / 4);
@@ -770,18 +769,19 @@ export class TrainingOrchestrator {
         }
       }
 
-      // Smart jumping for escape
+      // SMART ESCAPE JUMPING
       if (npc.lastAction === 4) {
         const heightGain = npc.position.y - oldPos.y;
         if (heightGain > 0.1) {
-          reward += 0.05;
-          if (visibleSeekers.length > 0) {
-            reward += 0.15; // Extra for jumping while escaping
+          if (visibleSeekers.length > 0 && visibleSeekers[0].distance < 10) {
+            reward += 0.2; // Escape jump
+          } else {
+            reward -= 0.02; // Unnecessary jump
           }
         }
       }
 
-      // Stuck penalties (less harsh for hiders)
+      // STUCK PENALTIES (less harsh)
       if (distanceMoved < 0.01) {
         npc.consecutiveStationary++;
         if (npc.consecutiveStationary > 30) {
@@ -791,20 +791,30 @@ export class TrainingOrchestrator {
         npc.consecutiveStationary = 0;
       }
 
-      // Boundary penalty
+      // BOUNDARY PENALTY
       if (npc.boundaryCollision) {
-        reward -= 0.05;
+        reward -= 0.3;
+        npc.boundaryHits = (npc.boundaryHits || 0) + 1;
+        if (npc.boundaryHits > 10) {
+          reward -= 0.5;
+        }
+      } else {
+        npc.boundaryHits = 0;
       }
 
-      // EPISODE COMPLETION PENALTIES (for being caught)
+      // JUMP SPAM PENALTY
+      const recentJumps = npc.recentActions.filter(a => a === 4).length;
+      if (recentJumps > 5) {
+        reward -= 0.1;
+      }
+
+      // CAUGHT PENALTY
       if (npc.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FOUND) {
         const survivedTime =
           (npc.caughtTime || Date.now()) - this.hideSeekManager.gameStartTime;
         const survivalRatio = survivedTime / this.hideSeekManager.gameTimeLimit;
-
-        // Penalty scaled by how quickly they were caught
         const catchPenalty = -10.0 * (1.0 - survivalRatio);
-        reward += catchPenalty; // Bigger penalty for being caught early
+        reward += catchPenalty;
         console.log(
           `[HIDER CAUGHT PENALTY] ${catchPenalty.toFixed(2)} (survived ${(
             survivalRatio * 100
@@ -1105,6 +1115,9 @@ export class TrainingOrchestrator {
    */
   dispose() {
     this.trainingQueue.clear();
+    this.seekerAgent.dispose();
+    this.hiderAgent.dispose();
+    this.stateHistory.clear();
   }
 }
 

@@ -3,15 +3,14 @@
 // ==============================================================
 export class NPCVisionSystem {
   constructor(config = {}) {
-    this.visionRange = config.visionRange || 12;
+    this.visionRange = config.visionRange || 25;
     this.visionAngle = config.visionAngle || Math.PI / 2;
-    this.rayCount = config.rayCount || 32;
-    this.rayPrecisionAngle = config.rayPrecisionAngle || 0.1;
+    this.rayCount = config.rayCount || 64;
+    this.rayPrecisionAngle = config.rayPrecisionAngle || 0.2;
 
     this.debug = config.debug || false;
     this.chunkManager = null;
 
-    // ✅ FIX 2: Use a Map to store debug lines for each NPC separately.
     this.debugLines = new Map();
 
     this.warningShown = {
@@ -66,8 +65,7 @@ export class NPCVisionSystem {
       z: target.position.z - observer.position.z,
     };
 
-    // This calculation is based on a +Z forward world, so we must adjust the observer's yaw.
-    const observerForwardAngle = observer.yaw - Math.PI;
+    const observerForwardAngle = observer.yaw;
 
     const angleToTarget = Math.atan2(toTarget.x, toTarget.z);
     const angleDiff = angleToTarget - observerForwardAngle;
@@ -410,26 +408,46 @@ export class NPCVisionSystem {
     if (!this.debug) return;
 
     const dirName = this.getDirectionName(observer.yaw);
+    const pos = observer.position;
+    
+    // Always log basic info
+    console.log(
+      `\n👁️ ${observer.userData.id} (${observer.role}) at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) facing ${dirName} (yaw: ${observer.yaw.toFixed(2)})`
+    );
 
+    // NPC visibility
     if (visionData.visibleNPCs.length > 0) {
       const targets = visionData.visibleNPCs
-        .map((n) => `${n.id}(${n.role}) at ${n.distance.toFixed(1)}u`)
-        .join(", ");
-
-      console.log(
-        `👁️ ${observer.userData.id} (${observer.role}) facing ${dirName} sees: ${targets}`
-      );
+        .map((n) => `${n.id}(${n.role}) at ${n.distance.toFixed(1)}u, dir:(${n.direction.x.toFixed(2)}, ${n.direction.z.toFixed(2)})`)
+        .join("\n     ");
+      console.log(`   ✅ SEES: ${targets}`);
+    } else {
+      console.log(`   ❌ No NPCs visible`);
     }
 
+    // Ray statistics
     const blockHits = visionData.raycastData.rays.filter(
       (r) => r.hit && !r.isPlayer
     ).length;
     const npcHits = visionData.raycastData.rays.filter(
       (r) => r.hit && r.isPlayer
     ).length;
+    const totalRays = visionData.raycastData.rays.length;
 
-    if (blockHits > 0 || npcHits > 0) {
-      console.log(`   Rays: ${blockHits} blocks, ${npcHits} NPCs`);
+    console.log(`   📊 Rays: ${totalRays} total, ${blockHits} blocks, ${npcHits} NPCs`);
+
+    // Distance distribution
+    if (npcHits > 0) {
+      const npcRays = visionData.raycastData.rays.filter(r => r.isPlayer);
+      const distances = npcRays.map(r => r.distance.toFixed(1));
+      console.log(`   📏 NPC ray distances: ${distances.join(', ')}`);
+    }
+
+    // Closest obstacle
+    const obstacleRays = visionData.raycastData.rays.filter(r => r.hit && !r.isPlayer);
+    if (obstacleRays.length > 0) {
+      const closest = Math.min(...obstacleRays.map(r => r.distance));
+      console.log(`   🧱 Closest obstacle: ${closest.toFixed(1)}u`);
     }
   }
 

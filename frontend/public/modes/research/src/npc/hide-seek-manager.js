@@ -298,6 +298,7 @@ export class HideSeekManager {
       totalHiders: this.hiders.length,
       gameTime: this.gameStartTime > 0 ? Date.now() - this.gameStartTime : 0,
       timeLimit: this.gameTimeLimit,
+      gameStartTime: this.gameStartTime,
     };
   }
 }

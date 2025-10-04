@@ -3,15 +3,15 @@
 // ==============================================================
 
 export const TRAINING_WORLD_CONFIG = {
-  SEED: 2154,
-  SIZE: 16,
-  BASE_GROUND_LEVEL: 45,
-  TERRAIN_HEIGHT_RANGE: 35, 
+  SEED: 6232,
+  SIZE: 64,
+  BASE_GROUND_LEVEL: 35,
+  TERRAIN_HEIGHT_RANGE: 45, 
   MAX_HEIGHT: 100,
-  WATER_LEVEL: 20, 
-  BIOME_SCALE: 0.3,
+  WATER_LEVEL: 40, 
+  BIOME_SCALE: 0.2,
   TEMPERATURE_SCALE: 0.006,
-  ELEVATION_SCALE: 0.001,
+  ELEVATION_SCALE: 0.01,
 
   BIOMES: {
     SCALE: 0.01, // Increased for smaller biomes
@@ -22,7 +22,7 @@ export const TRAINING_WORLD_CONFIG = {
         TREE_TYPE: "FOREST",
       },
       PLAINS: {
-        TREE_DENSITY: 0.05, // Very few trees in plains for open spaces
+        TREE_DENSITY: 0.5, // Very few trees in plains for open spaces
         DIRT_DEPTH: 2,
         TREE_TYPE: "PLAINS",
       },
@@ -112,11 +112,11 @@ export const TRAINING_WORLD_CONFIG = {
   },
 
   CAVES: {
-    MIN_HEIGHT: 5,
-    MAX_HEIGHT: 25, // Lower max height for caves
+    MIN_HEIGHT: 1,
+    MAX_HEIGHT: 1, // Lower max height for caves
 
     CHEESE: {
-      SCALE: 0.015, // Adjusted scale for smaller world
+      SCALE: 0.0015, // Adjusted scale for smaller world
       THRESHOLD: 0.75, // Higher threshold for fewer caves
       AMPLITUDE: 0.4, // Lower amplitude for less variation
     },

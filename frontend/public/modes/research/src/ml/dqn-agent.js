@@ -9,12 +9,11 @@ export class DQNAgent {
     this.role = role;
     this.config = NPC_BEHAVIOR.ML_TRAINING.MODEL;
 
-    // Training parameters with adjusted epsilon for better exploration
-    this.epsilon = 1.0; // Start with full exploration
+    this.epsilon = 1.0;
     this.epsilonDecay = 0.9995; // Slower decay for more exploration
     this.epsilonMin = 0.1; // Higher minimum for continued exploration
-    this.gamma = this.config.gamma;
-    this.learningRate = this.config.learningRate;
+    this.gamma = 0.95; // Discount factor
+    this.learningRate = 0.001; // Slightly reduced learning rate
     this.stateSize = 140;
     this.actionSize = 9;
     this.model = null;
@@ -229,7 +228,7 @@ export class DQNAgent {
 
     try {
       // Use prioritized sampling for more important experiences
-      const batch = memory.samplePrioritized(this.config.batchSize, 0.6);
+      const batch = memory.sample(this.batchSize);
 
       const stateSequences = [];
       const nextStateSequences = [];
@@ -268,6 +267,7 @@ export class DQNAgent {
       return null;
     } finally {
       this.trainingInProgress = false;
+      this.trainingStep++;
     }
   }
 

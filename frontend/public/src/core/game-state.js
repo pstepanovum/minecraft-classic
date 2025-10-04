@@ -187,7 +187,7 @@ export function isGameReady() {
 
 // Add the spawn function that was previously exported from script.js
 export function spawn(x, z) {
-    if (!worldConfig) return { x: 0, y: 60, z: 0 };
+    if (!worldConfig) return { x: 0, y: 100, z: 0 };
 
     // Calculate spawn position based on world size
     const worldSize = worldConfig.SIZE || 512;

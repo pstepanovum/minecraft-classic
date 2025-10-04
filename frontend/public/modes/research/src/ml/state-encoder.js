@@ -22,7 +22,7 @@ export class StateEncoder {
     };
   }
 
-  encode(npc, gameState, perceptionData, worldSize = 512) {
+  encode(npc, gameState, perceptionData, worldSize) {
     const state = new Array(this.stateSize).fill(0);
 
     this.encodePosition(state, npc.position, worldSize);
@@ -82,11 +82,10 @@ export class StateEncoder {
         const ray = rays[i];
 
         if (ray.hit) {
-          const normalizedDistance = ray.distance / 12; // Normalize by vision range
+          const normalizedDistance = ray.distance / 25;
 
           if (ray.isPlayer) {
-            // Strong signal: player detected
-            state[start + i] = 1.0 + normalizedDistance; // 1.0 to 2.0
+            state[start + i] = normalizedDistance * 0.5 + blockType * 0.01; 
           } else {
             // Block hit
             const blockType = this.encodeBlockType(ray.blockType);
@@ -100,12 +99,8 @@ export class StateEncoder {
   encodeBoundaryProximity(state, npc, worldSize) {
     const { start } = this.encoding.boundaryProximity;
     const pos = npc.position;
-
-    // Normalize by world size (0 = at boundary, 1 = at opposite boundary)
-    state[start] = pos.z / worldSize; // Distance to north (z=0)
-    state[start + 1] = (worldSize - pos.z) / worldSize; // Distance to south
-    state[start + 2] = pos.x / worldSize; // Distance to west (x=0)
-    state[start + 3] = (worldSize - pos.x) / worldSize; // Distance to east
+    state[start] = pos.z / worldSize;
+    state[start + 1] = pos.x / worldSize;
   }
 
   encodeBlockType(blockType) {
@@ -144,8 +139,8 @@ export class StateEncoder {
       if (i < 0 || i >= rays.length) continue;
 
       const ray = rays[i];
-      if (ray.hit && !ray.isPlayer && ray.distance < 2.5) {
-        // Block detected ahead within jump distance
+      const jumpDetectionRange = 2.5;
+      if (ray.hit && !ray.isPlayer && ray.distance < jumpDetectionRange) {
         obstacleDetected = true;
         closestObstacle = Math.min(closestObstacle, ray.distance);
       }

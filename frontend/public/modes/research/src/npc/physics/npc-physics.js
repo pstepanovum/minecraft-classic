@@ -211,22 +211,29 @@ export function enforceNPCBoundaries(npc) {
   const buffer = 1.0;
   let wasContained = false;
 
+  // X-axis with velocity zeroing
   if (npc.position.x < buffer) {
     npc.position.x = buffer;
+    if (npc.velocity) npc.velocity.x = 0;
     wasContained = true;
   } else if (npc.position.x > worldSize - buffer) {
     npc.position.x = worldSize - buffer;
+    if (npc.velocity) npc.velocity.x = 0; 
     wasContained = true;
   }
 
+  // Z-axis with velocity zeroing
   if (npc.position.z < buffer) {
     npc.position.z = buffer;
+    if (npc.velocity) npc.velocity.z = 0;
     wasContained = true;
   } else if (npc.position.z > worldSize - buffer) {
     npc.position.z = worldSize - buffer;
+    if (npc.velocity) npc.velocity.z = 0;
     wasContained = true;
   }
 
+  // Y-axis (unchanged)
   if (npc.position.y < 0) {
     npc.position.y = 1;
     if (npc.velocity) npc.velocity.y = 0;
