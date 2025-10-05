@@ -6,7 +6,7 @@ import { createPlayer } from "../../../../src/player/players.js";
 import * as GameState from "../../../../src/core/game-state.js";
 import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
 import * as NPCPhysics from "../npc/physics/npc-physics.js";
-import { NPC_BEHAVIOR } from "./config-npc-behavior.js";
+import { NPC } from "./config-npc-behavior.js";
 import HideSeekManager from "./hide-seek-manager.js";
 import NPCMovementController from "./physics/npc-movement-controller.js";
 
@@ -58,8 +58,7 @@ class NPCSystem {
   generateNPCs(count = null) {
     if (this.gameMode === "hide_and_seek") {
       const totalNPCs =
-        NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount +
-        NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount;
+        NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
 
       if (this.npcs.length > 0) {
         console.warn(
@@ -74,7 +73,7 @@ class NPCSystem {
 
       count = totalNPCs;
       console.log(
-        `Spawning ${NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount} seeker(s) and ${NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount} hider(s)`
+        `Spawning ${NPC.HIDE_AND_SEEK.seekerCount} seeker(s) and ${NPC.HIDE_AND_SEEK.hiderCount} hider(s)`
       );
     } else if (count === null) {
       count = 3;
@@ -101,8 +100,7 @@ class NPCSystem {
     }
 
     const requiredNPCs =
-      NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount +
-      NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount;
+      NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
     if (this.gameMode === "hide_and_seek" && this.npcs.length >= requiredNPCs) {
       setTimeout(() => this.startHideAndSeekGame(), 1000);
     }
@@ -121,7 +119,7 @@ class NPCSystem {
     let skin;
 
     if (this.gameMode === "hide_and_seek") {
-      const seekerCount = NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount;
+      const seekerCount = NPC.HIDE_AND_SEEK.seekerCount;
 
       if (index < seekerCount) {
         // This is a seeker
@@ -277,17 +275,11 @@ class NPCSystem {
   startNPCSystem() {
     if (this.active) return;
     this.active = true;
-    this.lastUpdate = Date.now();
     console.log("Starting NPC system (physics only, ML controls movement)");
-    this.updateLoop();
   }
 
-  updateLoop() {
+  update(deltaTime) {
     if (!this.active) return;
-
-    const now = Date.now();
-    const deltaTime = 0.0333; // ~30 FPS
-    this.lastUpdate = now;
 
     // Update game state (detection, win conditions)
     this.hideSeekManager.update(deltaTime);
@@ -296,7 +288,7 @@ class NPCSystem {
     for (const npc of this.npcs) {
       if (!npc.visible || !npc.parent) continue;
 
-      if (npc.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FOUND) {
+      if (npc.hideSeekState === NPC.GAME_STATES.FOUND) {
         npc.isMoving = false;
         npc.velocity = { x: 0, y: 0, z: 0 };
         continue;
@@ -308,12 +300,10 @@ class NPCSystem {
       // Publish movement for any listeners
       this.publishNPCMovement(npc);
     }
-
-    requestAnimationFrame(() => this.updateLoop());
   }
 
   respawnNPC(npc) {
-    if (npc.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FOUND) return;
+    if (npc.hideSeekState === NPC.GAME_STATES.FOUND) return;
 
     const newPos = this.findValidSpawnPosition();
     if (newPos) {
@@ -339,8 +329,7 @@ class NPCSystem {
 
   startHideAndSeekGame() {
     const requiredNPCs =
-      NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount +
-      NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount;
+      NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
 
     if (this.npcs.length < requiredNPCs) {
       console.warn(`Need at least ${requiredNPCs} NPCs to start Hide and Seek`);

@@ -2,9 +2,12 @@
 // FILE: research/src/ml/encoding/state-encoder.js
 // ==============================================================
 
+import { NPC } from "../npc/config-npc-behavior.js";
+import { CLIENT_WORLD_CONFIG } from "../../../../src/core/game-state.js";
+
 export class StateEncoder {
   constructor() {
-    this.stateSize = 140;
+    this.stateSize = NPC.TRAINING.MODEL.stateSize;
 
     this.encoding = {
       position: { start: 0, size: 3 },
@@ -13,12 +16,13 @@ export class StateEncoder {
       onGround: { start: 8, size: 1 },
       visualField: { start: 9, size: 64 },
       memory: { start: 73, size: 16 },
-      actionHistory: { start: 89, size: 12 },
-      gameInfo: { start: 101, size: 5 },
-      roleSpecific: { start: 106, size: 14 },
-      boundaryProximity: { start: 120, size: 4 },
-      jumpInfo: { start: 124, size: 4 },
-      voxelNavigation: { start: 128, size: 12 },
+      actionHistory: { start: 89, size: 11 },
+      gameInfo: { start: 100, size: 5 },
+      roleSpecific: { start: 105, size: 14 },
+      boundaryProximity: { start: 119, size: 4 },
+      jumpInfo: { start: 123, size: 4 },
+      voxelNavigation: { start: 127, size: 12 },
+      blockInteraction: { start: 139, size: 6 },
     };
   }
 
@@ -36,7 +40,7 @@ export class StateEncoder {
     this.encodeBoundaryProximity(state, npc, worldSize);
     this.encodeJumpInfo(state, npc, perceptionData);
     this.encodeVoxelNavigation(state, npc);
-    
+
     if (npc.role === "seeker") {
       this.encodeSeekerInfo(state, npc, perceptionData);
     } else {
@@ -67,13 +71,19 @@ export class StateEncoder {
 
   encodeOrientation(state, yaw, pitch) {
     const { start } = this.encoding.orientation;
-    state[start] = yaw / Math.PI;
+
+    // Normalize yaw to [-π, π]
+    let normalizedYaw = yaw % (Math.PI * 2);
+    if (normalizedYaw > Math.PI) normalizedYaw -= Math.PI * 2;
+    if (normalizedYaw < -Math.PI) normalizedYaw += Math.PI * 2;
+
+    state[start] = normalizedYaw / Math.PI;
     state[start + 1] = (pitch || 0) / (Math.PI / 2);
   }
 
   encodeVelocity(state, velocity) {
     const { start } = this.encoding.velocity;
-    const maxSpeed = 0.2;
+    const maxSpeed = NPC.PHYSICS.SPRINT_SPEED;
     state[start] = Math.max(-1, Math.min(1, velocity.x / maxSpeed));
     state[start + 1] = Math.max(-1, Math.min(1, velocity.y / maxSpeed));
     state[start + 2] = Math.max(-1, Math.min(1, velocity.z / maxSpeed));
@@ -109,7 +119,7 @@ export class StateEncoder {
   encodeBoundaryProximity(state, npc, worldSize) {
     const { start } = this.encoding.boundaryProximity;
     const pos = npc.position;
-    
+
     state[start] = pos.x / worldSize;
     state[start + 1] = (worldSize - pos.x) / worldSize;
     state[start + 2] = pos.z / worldSize;
@@ -168,20 +178,20 @@ export class StateEncoder {
 
   encodeMemory(state, npc) {
     const { start } = this.encoding.memory;
-    
+
     if (!npc.spatialMemory) {
       npc.spatialMemory = {
         visitedPositions: [],
         lastSeenTargetPos: null,
         lastSeenTargetTime: 0,
-        exploredRegions: new Set()
+        exploredRegions: new Set(),
       };
     }
 
     if (npc.spatialMemory.lastSeenTargetPos) {
       const timeSinceSeen = Date.now() - npc.spatialMemory.lastSeenTargetTime;
       const recency = Math.exp(-timeSinceSeen / 10000);
-      
+
       state[start] = npc.spatialMemory.lastSeenTargetPos.x / 64;
       state[start + 1] = npc.spatialMemory.lastSeenTargetPos.z / 64;
       state[start + 2] = recency;
@@ -193,16 +203,20 @@ export class StateEncoder {
 
     // Encode exploration coverage (4 quadrants)
     const quadrants = [
-      [0, 32, 0, 32],   // Top-left
-      [32, 64, 0, 32],  // Top-right
-      [0, 32, 32, 64],  // Bottom-left
-      [32, 64, 32, 64]  // Bottom-right
+      [0, 32, 0, 32], // Top-left
+      [32, 64, 0, 32], // Top-right
+      [0, 32, 32, 64], // Bottom-left
+      [32, 64, 32, 64], // Bottom-right
     ];
 
     for (let i = 0; i < 4; i++) {
       const [x1, x2, z1, z2] = quadrants[i];
-      const quadrantKey = `${Math.floor((x1 + x2) / 2)},${Math.floor((z1 + z2) / 2)}`;
-      state[start + 3 + i] = npc.spatialMemory.exploredRegions.has(quadrantKey) ? 1 : 0;
+      const quadrantKey = `${Math.floor((x1 + x2) / 2)},${Math.floor(
+        (z1 + z2) / 2
+      )}`;
+      state[start + 3 + i] = npc.spatialMemory.exploredRegions.has(quadrantKey)
+        ? 1
+        : 0;
     }
 
     const recentPositions = npc.spatialMemory.visitedPositions.slice(-10);
@@ -231,7 +245,7 @@ export class StateEncoder {
 
     const now = Date.now();
     const timeElapsed = now - (gameState.gameStartTime || now);
-    const totalGameTime = 60000; // 60 seconds
+    const totalGameTime = NPC.HIDE_AND_SEEK.gameTimeLimit;
     const timeRemaining = Math.max(0, totalGameTime - timeElapsed);
 
     state[start] = timeRemaining / totalGameTime;
@@ -263,22 +277,21 @@ export class StateEncoder {
       state[start + 2] = nearest.direction.z;
       state[start + 3] = Math.min(1, nearest.distance / 12);
       state[start + 4] = Math.min(1, visibleHiders.length / 2);
-      
+
       if (!npc.spatialMemory) {
         npc.spatialMemory = {
           visitedPositions: [],
           lastSeenTargetPos: null,
           lastSeenTargetTime: 0,
-          exploredRegions: new Set()
+          exploredRegions: new Set(),
         };
       }
       npc.spatialMemory.lastSeenTargetPos = nearest.position.clone();
       npc.spatialMemory.lastSeenTargetTime = Date.now();
-      
     } else {
       state[start + 5] = 1.0;
     }
-    
+
     // Update visited positions
     this.updateSpatialMemory(npc);
   }
@@ -303,45 +316,42 @@ export class StateEncoder {
       state[start + 2] = nearest.direction.z;
       state[start + 3] = Math.min(1, nearest.distance / 12);
       state[start + 4] = threatLevel;
-      
+
       // Update spatial memory with threat location
       if (!npc.spatialMemory) {
         npc.spatialMemory = {
           visitedPositions: [],
           lastSeenTargetPos: null,
           lastSeenTargetTime: 0,
-          exploredRegions: new Set()
+          exploredRegions: new Set(),
         };
       }
       npc.spatialMemory.lastSeenTargetPos = nearest.position.clone();
       npc.spatialMemory.lastSeenTargetTime = Date.now();
-      
     } else {
       state[start + 5] = 1.0;
     }
 
     state[start + 6] = npc.hideSeekState === "HIDDEN" ? 1 : 0;
     state[start + 7] = npc.hideSeekState === "FLEEING" ? 1 : 0;
-    
+
     // Update visited positions
     this.updateSpatialMemory(npc);
   }
 
   updateSpatialMemory(npc) {
     if (!npc.spatialMemory) return;
-    
+
     const currentPos = { x: npc.position.x, z: npc.position.z };
     npc.spatialMemory.visitedPositions.push(currentPos);
     if (npc.spatialMemory.visitedPositions.length > 10) {
       npc.spatialMemory.visitedPositions.shift();
     }
-    
-    // Track explored regions (16x16 grid cells)
-    const gridX = Math.floor(npc.position.x / 16);
-    const gridZ = Math.floor(npc.position.z / 16);
-    npc.spatialMemory.exploredRegions.add(`${gridX},${gridZ}`);
 
-    console.log(`[FROM STATE ENCODER] Explored Regions:`, npc.spatialMemory.exploredRegions);
+    // Track explored regions (16x16 grid cells)
+    const gridX = Math.floor(npc.position.x / CLIENT_WORLD_CONFIG.CHUNK_SIZE);
+    const gridZ = Math.floor(npc.position.z / CLIENT_WORLD_CONFIG.CHUNK_SIZE);
+    npc.spatialMemory.exploredRegions.add(`${gridX},${gridZ}`);
   }
 
   encodeVoxelNavigation(state, npc) {
@@ -388,7 +398,6 @@ export class StateEncoder {
         state[start + idx + 3] = 0;
       }
     }
-    console.log(`[FROM STATE ENCODER] Voxel Navigation State:`, state.slice(start, start + 12));
   }
 
   getBlockAt(worldX, worldY, worldZ) {
@@ -396,7 +405,7 @@ export class StateEncoder {
       return null;
     }
 
-    const CHUNK_SIZE = 16;
+    const CHUNK_SIZE = CLIENT_WORLD_CONFIG.CHUNK_SIZE;
     const chunkX = Math.floor(worldX / CHUNK_SIZE);
     const chunkY = Math.floor(worldY / CHUNK_SIZE);
     const chunkZ = Math.floor(worldZ / CHUNK_SIZE);
@@ -417,6 +426,36 @@ export class StateEncoder {
     return { blockType };
   }
 
+  encodeBlockInteraction(state, npc) {
+    const { start } = this.encoding.blockInteraction;
+
+    // Blocks placed/removed this episode (normalized)
+    state[start] = (npc.blocksPlaced || 0) / 10;
+    state[start + 1] = (npc.blocksRemoved || 0) / 10;
+
+    // Can still place/remove?
+    state[start + 2] = (npc.blocksPlaced || 0) < 10 ? 1.0 : 0.0;
+    state[start + 3] = (npc.blocksRemoved || 0) < 10 ? 1.0 : 0.0;
+
+    // Blocks nearby (normalized count)
+    const nearbyBlocks = this.getNearbyBlockCount(npc);
+    state[start + 4] = Math.min(nearbyBlocks / 20, 1.0);
+
+    // Valid placement positions nearby
+    const validPlacements = this.getValidPlacementCount(npc);
+    state[start + 5] = Math.min(validPlacements / 10, 1.0);
+  }
+
+  getNearbyBlockCount(npc) {
+    // Quick approximation using voxel navigation data
+    return 5; // Placeholder - implement if needed
+  }
+
+  getValidPlacementCount(npc) {
+    // Quick approximation
+    return 3; // Placeholder - implement if needed
+  }
+
   decodeAction(actionIndex) {
     const actions = [
       "move_forward",
@@ -426,10 +465,11 @@ export class StateEncoder {
       "jump",
       "rotate_left",
       "rotate_right",
-      "rotate_up",
-      "rotate_down",
+      "look_up",
+      "look_down",
+      "place_block",
+      "remove_block",
     ];
-    console.log(`[FROM STATE ENCODER] Decoded Action: ${actions[actionIndex] || "unknown"}`);
     return actions[actionIndex] || "unknown";
   }
 }

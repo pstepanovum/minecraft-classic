@@ -2,29 +2,30 @@
 // FILE: research/src/ml/agents/dqn-agent.js
 // ==============================================================
 
-import { NPC_BEHAVIOR } from "../npc/config-npc-behavior.js";
+import { NPC } from "../npc/config-npc-behavior.js";
 
 export class DQNAgent {
   constructor(role = "seeker") {
     this.role = role;
-    this.config = NPC_BEHAVIOR.TRAINING.MODEL;
+    this.config = NPC.TRAINING.MODEL;
 
     // Exploration parameters
-    this.epsilon = 1.0;
-    this.epsilonDecay = 0.998;
-    this.epsilonMin = 0.05;
-    this.gamma = 0.95;
-    this.learningRate = 0.0003;
-    this.stateSize = 140;
-    this.actionSize = 9;
+    this.epsilon = NPC.TRAINING.MODEL.epsilon;
+    this.epsilonDecay = NPC.TRAINING.MODEL.epsilonDecay;
+    this.epsilonMin = NPC.TRAINING.MODEL.epsilonMin;
+    this.gamma = NPC.TRAINING.MODEL.gamma;
+    this.learningRate = NPC.TRAINING.MODEL.learningRate;
+    this.stateSize = NPC.TRAINING.MODEL.stateSize;
+    this.actionSize = NPC.TRAINING.MODEL.actionSize;
+    
     this.model = null;
     this.targetModel = null;
     this.trainingStep = 0;
     this.trainingInProgress = false;
 
     // Reward clipping to prevent explosion
-    this.rewardClipMin = -10.0;
-    this.rewardClipMax = 10.0;
+    this.rewardClipMin = NPC.TRAINING.MODEL.rewardClipMin;
+    this.rewardClipMax = NPC.TRAINING.MODEL.rewardClipMax;
 
     this.explorationBonus = 0.2;
     this.actionCounts = new Array(this.actionSize).fill(0);

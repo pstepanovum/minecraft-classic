@@ -454,7 +454,10 @@ function initializeHideSeekSystem() {
 
   console.log("Initializing Hide and Seek system...");
 
-  npcSystem = new NPCSystem(GameState.scene, GameState.chunkManager).initialize();
+  npcSystem = new NPCSystem(
+    GameState.scene,
+    GameState.chunkManager
+  ).initialize();
 
   window.npcSystem = npcSystem;
 
@@ -514,15 +517,25 @@ function animate() {
   let sceneChanged = true;
   let updateCounter = 0;
 
+  // Create clock for delta time
+  const clock = new THREE.Clock();
+
   GameState.renderer.setAnimationLoop(() => {
+    const deltaTime = clock.getDelta(); // Get time since last frame in seconds
+
     if (GameState.playerControls && GameState.player) {
-      GameState.playerControls();
+      GameState.playerControls(deltaTime); // Pass deltaTime
       sceneChanged = true;
     }
 
     // Update block manager
     if (GameState.blockManager) {
       GameState.blockManager.update();
+      sceneChanged = true;
+    }
+
+    if (npcSystem && npcSystem.active) {
+      npcSystem.update(deltaTime);
       sceneChanged = true;
     }
 

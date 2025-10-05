@@ -1,7 +1,7 @@
 // ==============================================================
 // FILE: research/src/ml/memory/experience-replay.js
 // ==============================================================
-
+import { NPC } from "../npc/config-npc-behavior.js";
 /**
  * Experience Replay Buffer for Deep Q-Learning
  * 
@@ -12,7 +12,7 @@
  * enabling stable neural network training.
  */
 export class ExperienceReplay {
-  constructor(maxSize = 10000) {
+  constructor(maxSize = NPC.TRAINING.MODEL.memorySize) {
     this.maxSize = maxSize;
     this.buffer = [];
     this.position = 0;

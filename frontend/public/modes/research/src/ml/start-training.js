@@ -3,7 +3,7 @@
 // ==============================================================
 
 import { TrainingOrchestrator } from "./training-orchestrator.js";
-import { NPC_BEHAVIOR } from "../npc/config-npc-behavior.js";
+import { NPC } from "../npc/config-npc-behavior.js";
 
 export async function initializeTraining(
   npcSystem,
@@ -12,7 +12,7 @@ export async function initializeTraining(
 ) {
   console.log("Initializing ML training system...");
 
-  NPC_BEHAVIOR.TRAINING.enabled = true;
+  NPC.TRAINING.enabled = NPC.TRAINING.enabled;
 
   if (chunkManager) {
     npcSystem.chunkManager = chunkManager;
@@ -68,7 +68,7 @@ export async function startTraining(trainer, numEpisodes) {
 
 export async function loadTrainedModel(
   trainer,
-  episode = 2000,
+  episode,
   seekerFiles,
   hiderFiles
 ) {

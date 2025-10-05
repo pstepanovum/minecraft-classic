@@ -2,19 +2,22 @@
 // FILE: research/src/npc/config-npc-behavior.js (ADJUSTED)
 // ==============================================================
 
-export const NPC_BEHAVIOR = {
+export const NPC = {
   //--------------------------------------------------------------//
   //                    Core Physics System
   //--------------------------------------------------------------//
   PHYSICS: {
-    JUMP_SPEED: 0.15,
-    GRAVITY: 0.008,
-    TERMINAL_VELOCITY: -3,
-    WALK_SPEED: 0.0697,
-    SPRINT_SPEED: 0.112,
-    SNEAK_SPEED: 0.04,
+    // Vertical physics (per second values)
+    JUMP_SPEED: 8.4, // blocks/second (matching player)
+    GRAVITY: 32.0, // blocks/second²
+    TERMINAL_VELOCITY: -78.4, // blocks/second
 
-    // Collision detection
+    // Horizontal movement (per second values)
+    WALK_SPEED: 4.0, // blocks/second (slightly slower than player)
+    SPRINT_SPEED: 5.6, // blocks/second (matching player sprint)
+    SNEAK_SPEED: 1.3, // blocks/second (matching player sneak)
+
+    // Collision detection (unchanged - these are sizes, not velocities)
     PLAYER_WIDTH: 0.6,
     PLAYER_HEIGHT: 1.7,
     COLLISION_WIDTH: 0.5,
@@ -22,18 +25,20 @@ export const NPC_BEHAVIOR = {
     GROUND_CHECK_DISTANCE: 0.12,
   },
 
+  VISION: {
+    visionRange: 25,
+    visionAngle: Math.PI / 2,
+    rayCount: 64,
+    rayPrecisionAngle: 0.2,
+    debug: false,
+  },
+
   BLOCK_REMOVAL: {
-    maxReachDistance: 4,
-    interactionChance: 0.05,
-    maxBlocksPerSession: 3,
-    cooldownAfterSession: 10000,
+    maxReachDistance: 5,
   },
 
   BLOCK_PLACEMENT: {
-    maxReachDistance: 4,
-    interactionChance: 0.03,
-    maxBlocksPerSession: 5,
-    cooldownAfterSession: 15000,
+    maxReachDistance: 5,
     availableBlockTypes: [1, 2, 3, 4, 5],
   },
 
@@ -43,8 +48,8 @@ export const NPC_BEHAVIOR = {
   HIDE_AND_SEEK: {
     seekerCount: 1,
     hiderCount: 2,
-    gameTimeLimit: 60000,
-    countdownTime: 1000,
+    gameTimeLimit: 30000, // 30 seconds
+    countdownTime: 100, // 1 second
 
     // Seeker behavior
     SEEKER: {
@@ -95,16 +100,23 @@ export const NPC_BEHAVIOR = {
       epsilon: 1.0,
       epsilonDecay: 0.999,
       epsilonMin: 0.05,
+      stateSize: 141,
       batchSize: 32,
       memorySize: 10000,
+
+      // Change action size if you modify actions
+      actionSize: 11,
+
+      rewardClipMin: -1,
+      rewardClipMax: 1,
     },
 
     // Training parameters
     TRAINING: {
       episodes: 2000,
-      maxStepsPerEpisode: 3000,
-      updateFrequency: 10,
-      targetUpdateFrequency: 2000,
+      maxStepsPerEpisode: 900,
+      updateFrequency: 15,
+      targetUpdateFrequency: 1500,
       saveFrequency: 50,
       validationFrequency: 10,
     },

@@ -3,11 +3,11 @@
 // ==============================================================
 
 import * as GameState from "../../../../../src/core/game-state.js";
-import { NPC_BEHAVIOR } from "../config-npc-behavior.js";
+import { NPC } from "../config-npc-behavior.js";
 
 export class NPCBlockRemoval {
   constructor() {
-    this.maxReachDistance = NPC_BEHAVIOR.BLOCK_REMOVAL.maxReachDistance;
+    this.maxReachDistance = NPC.BLOCK_REMOVAL.maxReachDistance;
     console.log("NPCBlockRemoval initialized (ML-controlled)");
   }
 

@@ -1,22 +1,22 @@
 // ==============================================================
-// FILE: research/src/npc/physics/npc-physics.js (REVERTED + MINIMAL COMPATIBILITY FIXES)
+// FILE: research/src/npc/physics/npc-physics.js
 // ==============================================================
 
 import * as GameState from "../../../../../src/core/game-state.js";
-import { NPC_BEHAVIOR } from "../config-npc-behavior.js";
+import { NPC } from "../config-npc-behavior.js";
 
 //--------------------------------------------------------------//
 //                        Physics Constants
 //--------------------------------------------------------------//
 
 export const NPC_PHYSICS = {
-  GRAVITY: NPC_BEHAVIOR.PHYSICS.GRAVITY,
-  TERMINAL_VELOCITY: NPC_BEHAVIOR.PHYSICS.TERMINAL_VELOCITY,
-  JUMP_SPEED: NPC_BEHAVIOR.PHYSICS.JUMP_SPEED,
-  COLLISION_WIDTH: NPC_BEHAVIOR.PHYSICS.COLLISION_WIDTH,
-  COLLISION_HEIGHT: NPC_BEHAVIOR.PHYSICS.COLLISION_HEIGHT,
-  WALK_SPEED: NPC_BEHAVIOR.PHYSICS.WALK_SPEED,
-  GROUND_CHECK_DISTANCE: NPC_BEHAVIOR.PHYSICS.GROUND_CHECK_DISTANCE,
+  GRAVITY: NPC.PHYSICS.GRAVITY,
+  TERMINAL_VELOCITY: NPC.PHYSICS.TERMINAL_VELOCITY,
+  JUMP_SPEED: NPC.PHYSICS.JUMP_SPEED,
+  COLLISION_WIDTH: NPC.PHYSICS.COLLISION_WIDTH,
+  COLLISION_HEIGHT: NPC.PHYSICS.COLLISION_HEIGHT,
+  WALK_SPEED: NPC.PHYSICS.WALK_SPEED,
+  GROUND_CHECK_DISTANCE: NPC.PHYSICS.GROUND_CHECK_DISTANCE,
 };
 
 const tempVector = new THREE.Vector3();
@@ -26,22 +26,21 @@ const testPosition = new THREE.Vector3();
 //                        Core Physics
 //--------------------------------------------------------------//
 
-export function applyNPCGravity(npc, scene, deltaTime = 0.0333) {
+export function applyNPCGravity(npc, scene, deltaTime) {
   if (!npc.velocity) {
     npc.velocity = { x: 0, y: 0, z: 0 };
     npc.isOnGround = false;
   }
 
-  // NOTE: Store previous ground state for checkLanding utility
   const wasOnGround = npc.isOnGround;
 
   npc.velocity.y = Math.max(
-    npc.velocity.y - NPC_PHYSICS.GRAVITY * deltaTime * 60, // Original scaling
+    npc.velocity.y - NPC_PHYSICS.GRAVITY * deltaTime,
     NPC_PHYSICS.TERMINAL_VELOCITY
   );
 
   testPosition.copy(npc.position);
-  testPosition.y += npc.velocity.y;
+  testPosition.y += npc.velocity.y * deltaTime;
 
   const collision = checkNPCCollision(testPosition, scene);
 
@@ -60,29 +59,21 @@ export function applyNPCGravity(npc, scene, deltaTime = 0.0333) {
     npc.isOnGround = true;
   }
 
-  // Return value is now an object for richer state passing
   return {
     isOnGround: npc.isOnGround,
     justLanded: !wasOnGround && npc.isOnGround,
   };
 }
 
-/**
- * Initiates a jump for the NPC.
- * @param {Object} npc The NPC object.
- * @param {number} [jumpVelocity] Override for JUMP_SPEED. (ADDED FOR COMPATIBILITY)
- * @returns {boolean} True if jump initiated.
- */
 export function makeNPCJump(npc, jumpVelocity = NPC_PHYSICS.JUMP_SPEED) {
   if (!npc.isOnGround || !npc.velocity) return false;
 
-  // Use jumpVelocity argument for compatibility
   npc.velocity.y = jumpVelocity;
   npc.isOnGround = false;
   return true;
 }
 
-export function moveNPC(npc, direction, speed, scene, deltaTime = 0.0333) {
+export function moveNPC(npc, direction, speed, scene, deltaTime) {
   if (!direction || direction.lengthSq() === 0) {
     return { hasMoved: false, xBlocked: false, zBlocked: false };
   }
@@ -90,7 +81,7 @@ export function moveNPC(npc, direction, speed, scene, deltaTime = 0.0333) {
   tempVector
     .copy(direction)
     .normalize()
-    .multiplyScalar(speed * deltaTime * 60); // Original scaling
+    .multiplyScalar(speed * deltaTime);
   tempVector.y = 0;
 
   const startPosition = npc.position.clone();
@@ -211,18 +202,16 @@ export function enforceNPCBoundaries(npc) {
   const buffer = 1.0;
   let wasContained = false;
 
-  // X-axis with velocity zeroing
   if (npc.position.x < buffer) {
     npc.position.x = buffer;
     if (npc.velocity) npc.velocity.x = 0;
     wasContained = true;
   } else if (npc.position.x > worldSize - buffer) {
     npc.position.x = worldSize - buffer;
-    if (npc.velocity) npc.velocity.x = 0; 
+    if (npc.velocity) npc.velocity.x = 0;
     wasContained = true;
   }
 
-  // Z-axis with velocity zeroing
   if (npc.position.z < buffer) {
     npc.position.z = buffer;
     if (npc.velocity) npc.velocity.z = 0;
@@ -233,7 +222,6 @@ export function enforceNPCBoundaries(npc) {
     wasContained = true;
   }
 
-  // Y-axis (unchanged)
   if (npc.position.y < 0) {
     npc.position.y = 1;
     if (npc.velocity) npc.velocity.y = 0;
@@ -295,16 +283,13 @@ export function canNPCMoveTo(npc, direction, distance = 1, scene) {
   return !checkNPCCollision(testPosition, scene).collides;
 }
 
-export function updateNPCPhysics(npc, scene, deltaTime = 0.0333) {
+export function updateNPCPhysics(npc, scene, deltaTime) {
   if (!npc || !npc.visible || !npc.position) return;
 
   applyNPCGravity(npc, scene, deltaTime);
   enforceNPCBoundaries(npc);
 }
 
-/**
- * Utility function to check if the NPC is currently on the ground.
- */
 export function checkLanding(npc) {
   return npc.isOnGround;
 }

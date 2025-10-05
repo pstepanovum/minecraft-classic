@@ -7,9 +7,22 @@
  */
 
 import * as NPCPhysics from "./npc-physics.js";
-import { NPC_BEHAVIOR } from "../config-npc-behavior.js";
+import { NPC } from "../config-npc-behavior.js";
 import { NPCBlockRemoval } from "./npc-block-removal.js";
 import { NPCBlockPlacement } from "./npc-block-placement.js";
+import { BlockType } from "../../../../../src/world/textures.js"
+
+const AVAILABLE_BLOCKS = [
+  BlockType.GRASS,
+  BlockType.STONE,
+  BlockType.DIRT,
+  BlockType.SAND,
+  BlockType.SNOW,
+  BlockType.BEDROCK,
+  BlockType.LOG,
+  BlockType.LEAVES,
+  BlockType.GRAVEL,
+];
 
 const CHUNK_SIZE = 16;
 
@@ -22,7 +35,7 @@ export class NPCMovementController {
     this.blockPlacement = new NPCBlockPlacement();
 
     // Physics constants from config
-    this.physics = NPC_BEHAVIOR.PHYSICS;
+    this.physics = NPC.PHYSICS;
 
     // Track movement statistics (from reference)
     this.movementStats = new Map();
@@ -58,68 +71,42 @@ export class NPCMovementController {
       });
     }
 
-    // Initialize jump cooldown (Kept for action 4, though smart jump uses stats)
     npc.jumpCooldown = 0;
   }
 
   /**
    * Execute a movement action
    */
-  executeAction(npc, actionIndex, deltaTime = 0.0333) {
+  executeAction(npc, actionIndex, deltaTime) {
     const speed = this.getNPCSpeed(npc);
-
-    // Setup for intelligent forward movement
     const stats = this.movementStats.get(npc.userData.id);
     const currentTime = Date.now() / 1000;
 
-    // Reset movement flags
-    npc.isMoving = false;
-
     switch (actionIndex) {
-      case 0: // Move forward (REPLACED with intelligent logic)
-        return this.moveForwardWithObstacleDetection(
-          npc,
-          speed,
-          deltaTime,
-          stats,
-          currentTime
-        );
-
-      case 1: // Move backward (Uses original simple logic)
+      case 0:
+        return this.moveForward(npc, speed, deltaTime);
+      case 1:
         return this.moveBackward(npc, speed, deltaTime);
-
-      case 2: // Move left (strafe) (Uses original simple logic)
+      case 2:
         return this.moveLeft(npc, speed, deltaTime);
-
-      case 3: // Move right (strafe) (Uses original simple logic)
+      case 3:
         return this.moveRight(npc, speed, deltaTime);
-
-      case 4: // Jump (Uses improved jump logic)
+      case 4:
         return this.executeJump(npc, stats, currentTime);
-
-      case 5: // Crouch (reserved for future)
-        return { success: false, action: "crouch", reason: "not_implemented" };
-
-      case 6: // Rotate left (Uses original simple logic)
+      case 5:
         return this.rotateLeft(npc);
-
-      case 7: // Rotate right (Uses original simple logic)
+      case 6:
         return this.rotateRight(npc);
-
-      case 8: // Look up (Uses original simple logic)
+      case 7:
         return this.lookUp(npc);
-
-      case 9: // Look down (Uses original simple logic)
+      case 8:
         return this.lookDown(npc);
-
-      case 10: // Place block
+      case 9:
         return this.placeBlock(npc);
-
-      case 11: // Remove block
+      case 10:
         return this.removeBlock(npc);
-
       default:
-        return { success: false, action: "none", reason: "invalid_action" };
+        return { success: false, action: "none" };
     }
   }
 
@@ -129,109 +116,15 @@ export class NPCMovementController {
   getNPCSpeed(npc) {
     // ... (logic remains the same)
     if (!npc.role) {
-      return NPC_BEHAVIOR.PHYSICS.WALK_SPEED;
+      return NPC.PHYSICS.WALK_SPEED;
     }
 
-
-    return NPC_BEHAVIOR.PHYSICS.WALK_SPEED;
+    return NPC.PHYSICS.WALK_SPEED;
   }
 
   //--------------------------------------------------------------//
   //                    Movement Primitives
   //--------------------------------------------------------------//
-
-  /**
-   * Move forward with intelligent obstacle detection and auto-jumping (NEW/ADJUSTED)
-   */
-  moveForwardWithObstacleDetection(npc, speed, deltaTime, stats, currentTime) {
-    const forwardDir = new THREE.Vector3(
-      -Math.sin(npc.yaw),
-      0,
-      -Math.cos(npc.yaw)
-    );
-    const forwardDirRaw = { x: forwardDir.x, z: forwardDir.z };
-
-    // 1. Check for obstacles ahead
-    const obstacleInfo = this.checkForObstacles(npc, forwardDirRaw);
-
-    if (obstacleInfo.hasObstacle) {
-      stats.consecutiveBlocked++;
-      stats.blockedCount++;
-
-      // Smart jumping: automatically jump if jumpable obstacle and off cooldown
-      if (
-        obstacleInfo.canJump &&
-        this.jumpConfig.smartJumpEnabled &&
-        npc.isOnGround &&
-        currentTime - stats.lastJumpTime > this.jumpConfig.jumpCooldown
-      ) {
-        console.log(
-          `[NPC ${
-            npc.userData.id
-          }] Auto-jumping over obstacle (height: ${obstacleInfo.obstacleHeight.toFixed(
-            1
-          )})`
-        );
-        this.executeJumpLogic(npc, stats, currentTime); // Use jump helper
-
-        // Use original moveInDirection logic, but at a slightly reduced speed
-        // NOTE: We only set the velocity for forward momentum, the jump sets the Y velocity
-        npc.velocity.x = forwardDir.x * speed * 0.8;
-        npc.velocity.z = forwardDir.z * speed * 0.8;
-
-        // This execution of `moveInDirection` is for *normal* movement *without* obstacle checking
-        // Since the obstacle check already happened, we just apply momentum and return
-        npc.isMoving = true;
-        return {
-          success: true,
-          action: "move_forward_auto_jump",
-          blocked: true,
-        };
-      } else if (obstacleInfo.canWalkOver) {
-        // Small step, just walk over it
-        npc.position.y += 0.1; // Small step up
-        stats.consecutiveBlocked = 0;
-
-        // Execute normal forward movement
-        return this.moveInDirection(npc, forwardDir, speed, deltaTime);
-      } else {
-        // Can't jump over it / Too tall / Drop-off
-        if (stats.consecutiveBlocked > 5) {
-          // Un-stuck logic: Try moving diagonally
-          const sideDir = Math.random() < 0.5 ? -1 : 1;
-          const diagDir = new THREE.Vector3(
-            forwardDir.x * 0.5 - forwardDir.z * sideDir * 0.5,
-            0,
-            forwardDir.z * 0.5 + forwardDir.x * sideDir * 0.5
-          ).normalize();
-          stats.consecutiveBlocked = 0;
-
-          return this.moveInDirection(npc, diagDir, speed, deltaTime);
-        } else {
-          // Reduced forward movement when blocked
-          // Still use moveInDirection, but with reduced speed/direction
-          const reducedSpeed = speed * 0.2;
-          const result = NPCPhysics.moveNPC(
-            npc,
-            forwardDir,
-            reducedSpeed,
-            this.scene,
-            deltaTime
-          );
-          npc.isMoving = result.hasMoved;
-          return {
-            success: true,
-            action: "move_forward_blocked",
-            blocked: true,
-          };
-        }
-      }
-    } else {
-      // No obstacle, move forward normally
-      stats.consecutiveBlocked = 0;
-      return this.moveInDirection(npc, forwardDir, speed, deltaTime);
-    }
-  }
 
   moveForward(npc, speed, deltaTime) {
     const direction = new THREE.Vector3(
@@ -294,12 +187,16 @@ export class NPCMovementController {
   //--------------------------------------------------------------//
 
   rotateLeft(npc) {
-    npc.yaw -= Math.PI / 8; // Reverted to smoother original in the reference code
+    npc.yaw -= Math.PI / 8;
+    // Normalize to [-π, π]
+    npc.yaw = ((npc.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     return { success: true, action: "rotate_left", yaw: npc.yaw };
   }
 
   rotateRight(npc) {
-    npc.yaw += Math.PI / 8; // Reverted to smoother original in the reference code
+    npc.yaw += Math.PI / 8;
+    // Normalize to [-π, π]
+    npc.yaw = ((npc.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     return { success: true, action: "rotate_right", yaw: npc.yaw };
   }
 
@@ -375,9 +272,11 @@ export class NPCMovementController {
   //--------------------------------------------------------------//
 
   placeBlock(npc) {
-    // ... (logic remains the same, calling this.blockPlacement)
-    const validPositions = this.blockPlacement.findValidPositions(npc, 4);
+    if ((npc.blocksPlaced || 0) >= 10) {
+      return { success: false, action: "place_block", reason: "limit_reached" };
+    }
 
+    const validPositions = this.blockPlacement.findValidPositions(npc, 3);
     if (validPositions.length === 0) {
       return {
         success: false,
@@ -386,9 +285,8 @@ export class NPCMovementController {
       };
     }
 
-    // Choose closest valid position
+    // Pick closest position
     const targetPos = validPositions.reduce((closest, pos) => {
-      // ... distance calculation logic
       const distToPos = Math.sqrt(
         Math.pow(pos.x - npc.position.x, 2) +
           Math.pow(pos.y - npc.position.y, 2) +
@@ -402,38 +300,32 @@ export class NPCMovementController {
       return distToPos < distToClosest ? pos : closest;
     });
 
-    const availableType = this.blockPlacement.getAvailableBlockType(npc);
-    if (!availableType) {
-      return {
-        success: false,
-        action: "place_block",
-        reason: "no_blocks_in_inventory",
-      };
-    }
+    // Randomly select block type (NN doesn't choose type)
+    const blockType =
+      AVAILABLE_BLOCKS[Math.floor(Math.random() * AVAILABLE_BLOCKS.length)];
 
-    const target = {
+    const success = this.blockPlacement.placeBlock(npc, {
       x: targetPos.x,
       y: targetPos.y,
       z: targetPos.z,
-      blockType: availableType,
-    };
-
-    const success = this.blockPlacement.placeBlock(npc, target);
+      blockType: blockType,
+    });
 
     if (success) {
+      npc.blocksPlaced = (npc.blocksPlaced || 0) + 1;
       return {
         success: true,
         action: "place_block",
         position: targetPos,
-        blockType: availableType,
-      };
-    } else {
-      return {
-        success: false,
-        action: "place_block",
-        reason: "placement_failed",
+        blockType: blockType,
       };
     }
+
+    return {
+      success: false,
+      action: "place_block",
+      reason: "placement_failed",
+    };
   }
 
   //--------------------------------------------------------------//
@@ -441,43 +333,37 @@ export class NPCMovementController {
   //--------------------------------------------------------------//
 
   removeBlock(npc) {
-    // ... (logic remains the same, calling this.blockRemoval)
-    const nearbyBlocks = this.blockRemoval.findBlocksInRadius(npc, 4);
-
-    if (nearbyBlocks.length === 0) {
+    if ((npc.blocksRemoved || 0) >= 10) {
       return {
         success: false,
         action: "remove_block",
-        reason: "no_blocks_nearby",
+        reason: "limit_reached",
       };
     }
 
-    // Choose closest block
+    const nearbyBlocks = this.blockRemoval.findBlocksInRadius(npc, 3);
+    if (nearbyBlocks.length === 0) {
+      return { success: false, action: "remove_block", reason: "no_blocks" };
+    }
+
+    // Pick closest block
     const targetBlock = nearbyBlocks.reduce((closest, block) => {
       return block.distance < closest.distance ? block : closest;
     });
 
-    // Remove the block
     const success = this.blockRemoval.removeBlock(npc, targetBlock);
 
     if (success) {
+      npc.blocksRemoved = (npc.blocksRemoved || 0) + 1;
       return {
         success: true,
         action: "remove_block",
-        position: {
-          x: Math.floor(targetBlock.position.x),
-          y: Math.floor(targetBlock.position.y),
-          z: Math.floor(targetBlock.position.z),
-        },
+        position: targetBlock.position,
         blockType: targetBlock.type,
       };
-    } else {
-      return {
-        success: false,
-        action: "remove_block",
-        reason: "removal_failed",
-      };
     }
+
+    return { success: false, action: "remove_block", reason: "removal_failed" };
   }
 
   //--------------------------------------------------------------//
@@ -661,8 +547,8 @@ export class NPCMovementController {
   /**
    * Update physics and cooldowns (call every frame)
    */
-  updatePhysics(npc, deltaTime = 0.0333) {
-    // Update jump cooldown (Kept from original code)
+  updatePhysics(npc, deltaTime) {
+    // Update jump cooldown
     if (npc.jumpCooldown > 0) {
       npc.jumpCooldown -= deltaTime;
     }
@@ -672,10 +558,9 @@ export class NPCMovementController {
     // Apply physics
     NPCPhysics.updateNPCPhysics(npc, this.scene, deltaTime);
 
-    // Track successful jump landing (from reference)
+    // Track successful jump landing
     const stats = this.movementStats.get(npc.userData.id);
     if (stats && !wasOnGround && npc.isOnGround) {
-      // If it was not on ground, but now is, a jump attempt has concluded.
       stats.successfulJumps++;
     }
   }
@@ -731,7 +616,7 @@ export class NPCMovementController {
   }
 
   //--------------------------------------------------------------//
-  //              Statistics/Debugging Helpers (ADDED)
+  //              Statistics/Debugging Helpers
   //--------------------------------------------------------------//
 
   /**

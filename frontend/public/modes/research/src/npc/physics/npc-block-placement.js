@@ -3,47 +3,25 @@
 // ==============================================================
 
 import * as GameState from "../../../../../src/core/game-state.js";
-import { NPC_BEHAVIOR } from "../config-npc-behavior.js";
+import { NPC } from "../config-npc-behavior.js";
 
 export class NPCBlockPlacement {
   constructor() {
-    this.maxReachDistance = NPC_BEHAVIOR.BLOCK_PLACEMENT.maxReachDistance;
-    this.blockTypes = NPC_BEHAVIOR.BLOCK_PLACEMENT.availableBlockTypes;
+    this.maxReachDistance = NPC.BLOCK_PLACEMENT.maxReachDistance;
+    this.blockTypes = NPC.BLOCK_PLACEMENT.availableBlockTypes;
     console.log("NPCBlockPlacement initialized (ML-controlled)");
   }
 
   initializeNPC(npc) {
     npc.blockPlacement = {
-      blockInventory: this.generateInventory(),
       lastPlacementTime: 0,
     };
-  }
-
-  /**
-   * Generate initial block inventory
-   */
-  generateInventory() {
-    const inventory = {};
-    const numTypes = 2 + Math.floor(Math.random() * 2); // 2-3 block types
-
-    for (let i = 0; i < numTypes; i++) {
-      const blockType =
-        this.blockTypes[Math.floor(Math.random() * this.blockTypes.length)];
-      inventory[blockType] =
-        (inventory[blockType] || 0) + (3 + Math.floor(Math.random() * 8)); // 3-10 blocks
-    }
-
-    return inventory;
   }
 
   //--------------------------------------------------------------//
   //                  Triggered Actions Only
   //--------------------------------------------------------------//
 
-  /**
-   * Place block at target position
-   * Called by NPCMovementController.executeAction(npc, 10)
-   */
   placeBlock(npc, target) {
     if (!target || !target.blockType) return false;
 
@@ -55,24 +33,18 @@ export class NPCBlockPlacement {
       const currentBlock = GameState.getBlockType(x, y, z);
 
       if (currentBlock === 0) {
-        // Check inventory
-        if (npc.blockPlacement.blockInventory[target.blockType] > 0) {
-          // Deduct from inventory
-          npc.blockPlacement.blockInventory[target.blockType]--;
+        // Place block (no inventory check - unlimited)
+        GameState.chunkManager?.updateBlock(x, y, z, target.blockType);
 
-          // Place block
-          GameState.chunkManager?.updateBlock(x, y, z, target.blockType);
-
-          if (GameState.isOnline && GameState.socket?.connected) {
-            GameState.socket.emit("blockUpdate", {
-              position: { x, y, z },
-              type: target.blockType,
-            });
-          }
-
-          npc.blockPlacement.lastPlacementTime = Date.now();
-          return true;
+        if (GameState.isOnline && GameState.socket?.connected) {
+          GameState.socket.emit("blockUpdate", {
+            position: { x, y, z },
+            type: target.blockType,
+          });
         }
+
+        npc.blockPlacement.lastPlacementTime = Date.now();
+        return true;
       }
     } catch (e) {
       console.warn(`Block placement failed: ${e.message}`);
@@ -99,16 +71,21 @@ export class NPCBlockPlacement {
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -2; dy <= 3; dy++) {
         for (let dz = -radius; dz <= radius; dz++) {
+          // ✅ Skip positions too close to NPC
+          if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && Math.abs(dz) <= 1) {
+            continue; // Don't place blocks in 3x3x3 area around NPC
+          }
+
           const x = npcPos.x + dx;
           const y = npcPos.y + dy;
           const z = npcPos.z + dz;
 
           try {
             const blockType = GameState.getBlockType(x, y, z);
-            // Must be air and have adjacent block
             if (blockType === 0 && this.hasAdjacentBlock(x, y, z)) {
               const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-              if (distance <= this.maxReachDistance) {
+              if (distance <= this.maxReachDistance && distance > 1.5) {
+                // ✅ Minimum distance
                 positions.push({ x, y, z });
               }
             }
@@ -149,19 +126,6 @@ export class NPCBlockPlacement {
   }
 
   /**
-   * Get available block type from inventory
-   */
-  getAvailableBlockType(npc) {
-    const available = Object.entries(npc.blockPlacement.blockInventory)
-      .filter(([_, count]) => count > 0)
-      .map(([type]) => parseInt(type));
-
-    return available.length > 0
-      ? available[Math.floor(Math.random() * available.length)]
-      : null;
-  }
-
-  /**
    * Check if position is within reach and view
    */
   isPositionInReachAndView(npc, pos) {
@@ -172,7 +136,7 @@ export class NPCBlockPlacement {
 
     if (distance > this.maxReachDistance) return false;
 
-    // Check if roughly facing the position (within 90° cone)
+    // Check if roughly facing the position (within ~60° cone)
     const targetDir = new THREE.Vector3(dx, 0, dz).normalize();
     const npcDir = new THREE.Vector3(
       -Math.sin(npc.yaw),
@@ -180,24 +144,7 @@ export class NPCBlockPlacement {
       -Math.cos(npc.yaw)
     ).normalize();
 
-    return targetDir.dot(npcDir) > 0.5; // ~60° cone
-  }
-
-  /**
-   * Get inventory status (for ML observation)
-   */
-  getInventoryStatus(npc) {
-    return { ...npc.blockPlacement.blockInventory };
-  }
-
-  /**
-   * Get total blocks remaining
-   */
-  getTotalBlocks(npc) {
-    return Object.values(npc.blockPlacement.blockInventory).reduce(
-      (sum, count) => sum + count,
-      0
-    );
+    return targetDir.dot(npcDir) > 0.5;
   }
 }
 

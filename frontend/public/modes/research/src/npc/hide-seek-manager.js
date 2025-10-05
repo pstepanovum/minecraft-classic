@@ -2,12 +2,12 @@
 // FILE: research/src/npc/hide-seek/hide-seek-manager.js
 // ==============================================================
 
-import { NPC_BEHAVIOR } from "./config-npc-behavior.js";
+import { NPC } from "./config-npc-behavior.js";
 
 export class HideSeekManager {
   constructor(scene) {
     this.scene = scene;
-    this.gameState = NPC_BEHAVIOR.GAME_STATES.WAITING;
+    this.gameState = NPC.GAME_STATES.WAITING;
 
     // Game entities
     this.npcs = [];
@@ -18,8 +18,8 @@ export class HideSeekManager {
     // Game timing
     this.gameStartTime = 0;
     this.countdownStartTime = 0;
-    this.gameTimeLimit = NPC_BEHAVIOR.HIDE_AND_SEEK.gameTimeLimit;
-    this.countdownTime = NPC_BEHAVIOR.HIDE_AND_SEEK.countdownTime;
+    this.gameTimeLimit = NPC.HIDE_AND_SEEK.gameTimeLimit;
+    this.countdownTime = NPC.HIDE_AND_SEEK.countdownTime;
 
     // Game stats
     this.hidersFound = 0;
@@ -37,8 +37,8 @@ export class HideSeekManager {
 
   initializeGame(npcs) {
     const requiredNPCs =
-      NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount +
-      NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount;
+      NPC.HIDE_AND_SEEK.seekerCount +
+      NPC.HIDE_AND_SEEK.hiderCount;
 
     if (!npcs || npcs.length < requiredNPCs) {
       console.warn(`Need at least ${requiredNPCs} NPCs for hide and seek`);
@@ -53,7 +53,7 @@ export class HideSeekManager {
   }
 
   resetGameState() {
-    this.gameState = NPC_BEHAVIOR.GAME_STATES.COUNTDOWN;
+    this.gameState = NPC.GAME_STATES.COUNTDOWN;
     this.countdownStartTime = Date.now();
     this.hidersFound = 0;
     this.gameRunning = true;
@@ -65,18 +65,18 @@ export class HideSeekManager {
   }
 
   assignRoles() {
-    const seekerCount = NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount;
-    const hiderCount = NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount;
+    const seekerCount = NPC.HIDE_AND_SEEK.seekerCount;
+    const hiderCount = NPC.HIDE_AND_SEEK.hiderCount;
     this.seekers = this.npcs.slice(0, seekerCount);
     this.seekers.forEach((seeker) => {
-      this.initializeNPC(seeker, "seeker", NPC_BEHAVIOR.GAME_STATES.WAITING);
+      this.initializeNPC(seeker, "seeker", NPC.GAME_STATES.WAITING);
     });
 
     this.seeker = this.seekers[0];
 
     this.hiders = this.npcs.slice(seekerCount, seekerCount + hiderCount);
     this.hiders.forEach((hider) => {
-      this.initializeNPC(hider, "hider", NPC_BEHAVIOR.GAME_STATES.HIDDEN);
+      this.initializeNPC(hider, "hider", NPC.GAME_STATES.HIDDEN);
     });
   }
 
@@ -100,7 +100,7 @@ export class HideSeekManager {
   }
 
   endGame(reason) {
-    this.gameState = NPC_BEHAVIOR.GAME_STATES.GAME_OVER;
+    this.gameState = NPC.GAME_STATES.GAME_OVER;
     this.gameRunning = false;
 
     const gameTime =
@@ -122,8 +122,8 @@ export class HideSeekManager {
     this.endGame("restart");
     setTimeout(() => {
       const requiredNPCs =
-        NPC_BEHAVIOR.HIDE_AND_SEEK.seekerCount +
-        NPC_BEHAVIOR.HIDE_AND_SEEK.hiderCount;
+        NPC.HIDE_AND_SEEK.seekerCount +
+        NPC.HIDE_AND_SEEK.hiderCount;
       if (this.npcs.length >= requiredNPCs) {
         this.initializeGame(this.npcs);
       }
@@ -139,7 +139,7 @@ export class HideSeekManager {
 
     this.updateGameState();
 
-    if (this.gameState === NPC_BEHAVIOR.GAME_STATES.SEEKING) {
+    if (this.gameState === NPC.GAME_STATES.SEEKING) {
       this.checkDetections();
       this.checkWinConditions();
     }
@@ -149,20 +149,20 @@ export class HideSeekManager {
     const now = Date.now();
 
     switch (this.gameState) {
-      case NPC_BEHAVIOR.GAME_STATES.COUNTDOWN:
+      case NPC.GAME_STATES.COUNTDOWN:
         if (now - this.countdownStartTime >= this.countdownTime) {
-          this.gameState = NPC_BEHAVIOR.GAME_STATES.SEEKING;
+          this.gameState = NPC.GAME_STATES.SEEKING;
           this.gameStartTime = now;
 
           this.seekers.forEach((seeker) => {
-            seeker.hideSeekState = NPC_BEHAVIOR.GAME_STATES.SEEKING;
+            seeker.hideSeekState = NPC.GAME_STATES.SEEKING;
           });
 
           console.log("Hide and seek game started - seeking phase!");
         }
         break;
 
-      case NPC_BEHAVIOR.GAME_STATES.SEEKING:
+      case NPC.GAME_STATES.SEEKING:
         if (now - this.gameStartTime >= this.gameTimeLimit) {
           this.endGame("timeout");
         }
@@ -176,7 +176,7 @@ export class HideSeekManager {
 
   checkDetections() {
     this.hiders.forEach((hider) => {
-      if (hider.hideSeekState === NPC_BEHAVIOR.GAME_STATES.FOUND) return;
+      if (hider.hideSeekState === NPC.GAME_STATES.FOUND) return;
       const catchingSeeker = this.seekers.find((seeker) => {
         const distance = seeker.position.distanceTo(hider.position);
         return distance < 2;
@@ -200,7 +200,7 @@ export class HideSeekManager {
       );
     } else {
       const detectionTime = Date.now() - hider.detectionTimer;
-      if (detectionTime >= NPC_BEHAVIOR.HIDE_AND_SEEK.SEEKER.detectionTime) {
+      if (detectionTime >= NPC.HIDE_AND_SEEK.SEEKER.detectionTime) {
         this.catchHider(hider, hider.caughtBySeeker);
       }
     }
@@ -213,7 +213,7 @@ export class HideSeekManager {
   }
 
   catchHider(hider, catchingSeeker) {
-    hider.hideSeekState = NPC_BEHAVIOR.GAME_STATES.FOUND;
+    hider.hideSeekState = NPC.GAME_STATES.FOUND;
     this.hidersFound++;
 
     console.log(
@@ -261,7 +261,7 @@ export class HideSeekManager {
     });
     this.visualIndicators.clear();
 
-    if (!NPC_BEHAVIOR.VISUALS.showNPCStatus) return;
+    if (!NPC.VISUALS.showNPCStatus) return;
 
     this.npcs.forEach((npc) => {
       const indicator = this.createRoleIndicator(npc);
@@ -276,8 +276,8 @@ export class HideSeekManager {
     const geometry = new THREE.ConeGeometry(0.2, 0.6, 8);
     const color =
       npc.role === "seeker"
-        ? NPC_BEHAVIOR.HIDE_AND_SEEK.SEEKER.visualIndicatorColor
-        : NPC_BEHAVIOR.HIDE_AND_SEEK.HIDER.visualIndicatorColor;
+        ? NPC.HIDE_AND_SEEK.SEEKER.visualIndicatorColor
+        : NPC.HIDE_AND_SEEK.HIDER.visualIndicatorColor;
 
     const material = new THREE.MeshBasicMaterial({
       color: color,
