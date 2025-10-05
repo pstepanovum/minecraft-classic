@@ -10,7 +10,7 @@ import * as NPCPhysics from "./npc-physics.js";
 import { NPC } from "../config-npc-behavior.js";
 import { NPCBlockRemoval } from "./npc-block-removal.js";
 import { NPCBlockPlacement } from "./npc-block-placement.js";
-import { BlockType } from "../../../../../src/world/textures.js"
+import { BlockType } from "../../../../../src/world/textures.js";
 
 const AVAILABLE_BLOCKS = [
   BlockType.GRASS,
@@ -78,32 +78,24 @@ export class NPCMovementController {
    * Execute a movement action
    */
   executeAction(npc, actionIndex, deltaTime) {
-    const speed = this.getNPCSpeed(npc);
-    const stats = this.movementStats.get(npc.userData.id);
-    const currentTime = Date.now() / 1000;
-
     switch (actionIndex) {
       case 0:
         return this.moveForward(npc, speed, deltaTime);
       case 1:
         return this.moveBackward(npc, speed, deltaTime);
       case 2:
-        return this.moveLeft(npc, speed, deltaTime);
-      case 3:
-        return this.moveRight(npc, speed, deltaTime);
-      case 4:
         return this.executeJump(npc, stats, currentTime);
-      case 5:
+      case 3:
         return this.rotateLeft(npc);
-      case 6:
+      case 4:
         return this.rotateRight(npc);
-      case 7:
+      case 5:
         return this.lookUp(npc);
-      case 8:
+      case 6:
         return this.lookDown(npc);
-      case 9:
+      case 7:
         return this.placeBlock(npc);
-      case 10:
+      case 8:
         return this.removeBlock(npc);
       default:
         return { success: false, action: "none" };
@@ -120,6 +112,56 @@ export class NPCMovementController {
     }
 
     return NPC.PHYSICS.WALK_SPEED;
+  }
+
+  // In npc-movement-controller.js
+
+  executeActionGroups(npc, groups, deltaTime) {
+    const speed = this.getNPCSpeed(npc);
+    const stats = this.movementStats.get(npc.userData.id);
+    const currentTime = Date.now() / 1000;
+    const results = [];
+
+    // Execute all selected actions simultaneously
+
+    // Movement (0=none, 1=forward, 2=backward)
+    if (groups.movement === 1) {
+      results.push(this.moveForward(npc, speed, deltaTime));
+    } else if (groups.movement === 2) {
+      results.push(this.moveBackward(npc, speed, deltaTime));
+    }
+
+    // Jump (0=no, 1=yes)
+    if (groups.jump === 1) {
+      results.push(this.executeJump(npc, stats, currentTime));
+    }
+
+    // Rotation (0=none, 1=left, 2=right)
+    if (groups.rotation === 1) {
+      results.push(this.rotateLeft(npc));
+    } else if (groups.rotation === 2) {
+      results.push(this.rotateRight(npc));
+    }
+
+    // Look (0=none, 1=up, 2=down)
+    if (groups.look === 1) {
+      results.push(this.lookUp(npc));
+    } else if (groups.look === 2) {
+      results.push(this.lookDown(npc));
+    }
+
+    // Block (0=none, 1=place, 2=remove)
+    if (groups.block === 1) {
+      results.push(this.placeBlock(npc));
+    } else if (groups.block === 2) {
+      results.push(this.removeBlock(npc));
+    }
+
+    return {
+      success: results.length > 0 && results.some((r) => r.success),
+      results: results,
+      groups: groups,
+    };
   }
 
   //--------------------------------------------------------------//
@@ -272,7 +314,7 @@ export class NPCMovementController {
   //--------------------------------------------------------------//
 
   placeBlock(npc) {
-    if ((npc.blocksPlaced || 0) >= 10) {
+    if ((npc.blocksPlaced || 0) >= 1) {
       return { success: false, action: "place_block", reason: "limit_reached" };
     }
 
@@ -333,7 +375,7 @@ export class NPCMovementController {
   //--------------------------------------------------------------//
 
   removeBlock(npc) {
-    if ((npc.blocksRemoved || 0) >= 10) {
+    if ((npc.blocksRemoved || 0) >= 1) {
       return {
         success: false,
         action: "remove_block",
@@ -367,83 +409,8 @@ export class NPCMovementController {
   }
 
   //--------------------------------------------------------------//
-  //              Voxel World Interaction Helpers (ADDED)
+  //              World Interaction Helpers
   //--------------------------------------------------------------//
-
-  /**
-   * Check for obstacles in front of the NPC (from reference)
-   */
-  checkForObstacles(npc, direction) {
-    if (!this.chunkManager) {
-      // NOTE: Crucial for movement; log a warning if missing
-      // console.warn("ChunkManager is missing. Obstacle detection disabled.");
-      return { hasObstacle: false };
-    }
-
-    const checkDistance = 1.5; // How far ahead to check
-    const pos = npc.position;
-
-    // Check at multiple heights
-    const feetY = Math.floor(pos.y);
-    const bodyY = Math.floor(pos.y + 0.5);
-    const headY = Math.floor(pos.y + 1.5);
-
-    // Check position ahead
-    const checkX = Math.floor(pos.x + direction.x * checkDistance);
-    const checkZ = Math.floor(pos.z + direction.z * checkDistance);
-
-    // Get blocks at different heights
-    const blockAtFeet = this.getBlockAt(checkX, feetY, checkZ);
-    const blockAtBody = this.getBlockAt(checkX, bodyY, checkZ);
-    const blockAtHead = this.getBlockAt(checkX, headY, checkZ);
-    const blockAbove = this.getBlockAt(checkX, headY + 1, checkZ);
-    const groundBelow = this.getBlockAt(checkX, feetY - 1, checkZ);
-
-    // Analyze obstacle type
-    if (!groundBelow) {
-      // Drop-off ahead - be careful
-      return {
-        hasObstacle: true,
-        canJump: false,
-        dropOff: true,
-      };
-    }
-
-    if (blockAtBody || blockAtHead) {
-      // There's a block at body or head height
-      if (!blockAbove) {
-        // We might be able to jump over it (1 or 2 blocks high)
-        const obstacleHeight = blockAtHead ? 2 : 1;
-        return {
-          hasObstacle: true,
-          canJump:
-            obstacleHeight <= this.jumpConfig.maxJumpHeight && npc.isOnGround,
-          obstacleHeight: obstacleHeight,
-          canWalkOver: false,
-        };
-      } else {
-        // Too tall to jump over
-        return {
-          hasObstacle: true,
-          canJump: false,
-          obstacleHeight: 3,
-          canWalkOver: false,
-        };
-      }
-    }
-
-    if (blockAtFeet && !blockAtBody) {
-      // Small step up (1 block high)
-      return {
-        hasObstacle: true,
-        canJump: true,
-        obstacleHeight: 0.5,
-        canWalkOver: true,
-      };
-    }
-
-    return { hasObstacle: false };
-  }
 
   /**
    * Get block at world coordinates (from reference)
@@ -474,73 +441,6 @@ export class NPCMovementController {
   }
 
   //--------------------------------------------------------------//
-  //              Perception Helpers (Kept)
-  //--------------------------------------------------------------//
-
-  /**
-   * Get nearby blocks (for ML observation)
-   */
-  getNearbyBlocks(npc, radius = 5) {
-    return this.blockRemoval.findBlocksInRadius(npc, radius);
-  }
-
-  /**
-   * Get valid placement positions (for ML observation)
-   */
-  getValidPlacementPositions(npc, radius = 5) {
-    return this.blockPlacement.findValidPositions(npc, radius);
-  }
-
-  /**
-   * Get block inventory status (for ML observation)
-   */
-  getBlockInventory(npc) {
-    // Also include surrounding blocks context (from reference)
-    if (!this.chunkManager) {
-      return {
-        hasBlocks: false,
-        blockTypes: [],
-        canPlace: false,
-        canRemove: false,
-      };
-    }
-
-    const pos = npc.position;
-    const surroundingBlocks = [];
-
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 2; dy++) {
-        for (let dz = -1; dz <= 1; dz++) {
-          const block = this.getBlockAt(
-            Math.floor(pos.x + dx),
-            Math.floor(pos.y + dy),
-            Math.floor(pos.z + dz)
-          );
-          if (block && block.blockType) {
-            surroundingBlocks.push(block);
-          }
-        }
-      }
-    }
-
-    return {
-      hasBlocks: true,
-      blockTypes: this.blockPlacement.getInventoryStatus(npc)
-        ?.availableTypes || [1, 2, 3], // Example types
-      surroundingBlocks: surroundingBlocks,
-      canPlace: this.blockPlacement.getTotalBlocks(npc) > 0,
-      canRemove: surroundingBlocks.length > 0,
-    };
-  }
-
-  /**
-   * Get total blocks available (for ML observation)
-   */
-  getTotalBlocks(npc) {
-    return this.blockPlacement.getTotalBlocks(npc);
-  }
-
-  //--------------------------------------------------------------//
   //                  Physics Update (per frame) (ADJUSTED)
   //--------------------------------------------------------------//
 
@@ -563,56 +463,6 @@ export class NPCMovementController {
     if (stats && !wasOnGround && npc.isOnGround) {
       stats.successfulJumps++;
     }
-  }
-
-  //--------------------------------------------------------------//
-  //           High-Level Movement (optional convenience) (ADJUSTED)
-  //--------------------------------------------------------------//
-
-  /**
-   * Move toward a target position (convenience method)
-   */
-  moveTowardsTarget(npc, targetPos, deltaTime) {
-    const direction = targetPos.clone().sub(npc.position);
-    direction.y = 0;
-
-    if (direction.lengthSq() < 0.01) {
-      npc.isMoving = false;
-      return { success: false, atTarget: true };
-    }
-
-    direction.normalize();
-    npc.yaw = Math.atan2(-direction.x, -direction.z);
-
-    const speed = this.getNPCSpeed(npc);
-    const result = NPCPhysics.moveNPC(
-      npc,
-      direction,
-      speed,
-      this.scene,
-      deltaTime
-    );
-
-    // Auto-jump if blocked
-    const stats = this.movementStats.get(npc.userData.id);
-    const currentTime = Date.now() / 1000;
-
-    if (
-      (result.xBlocked || result.zBlocked) &&
-      npc.isOnGround &&
-      stats &&
-      currentTime - stats.lastJumpTime > this.jumpConfig.jumpCooldown
-    ) {
-      this.executeJumpLogic(npc, stats, currentTime);
-    }
-
-    npc.isMoving = result.hasMoved;
-
-    return {
-      success: result.hasMoved,
-      action: "move_to_target",
-      distance: npc.position.distanceTo(targetPos),
-    };
   }
 
   //--------------------------------------------------------------//

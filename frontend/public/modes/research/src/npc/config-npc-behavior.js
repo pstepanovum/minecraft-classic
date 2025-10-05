@@ -100,12 +100,20 @@ export const NPC = {
       epsilon: 1.0,
       epsilonDecay: 0.999,
       epsilonMin: 0.05,
-      stateSize: 141,
+      stateSize: 139,
+      actionSize: 14,
       batchSize: 32,
       memorySize: 10000,
 
-      // Change action size if you modify actions
-      actionSize: 11,
+      ACTION_GROUPS: {
+        movement: 3, // none, forward, backward
+        jump: 2, // no, yes
+        rotation: 3, // none, left, right
+        look: 3, // none, up, down
+        block: 3, // none, place, remove
+      },
+
+      actionDistribution: 216, // 3*2*3*3*3
 
       rewardClipMin: -1,
       rewardClipMax: 1,

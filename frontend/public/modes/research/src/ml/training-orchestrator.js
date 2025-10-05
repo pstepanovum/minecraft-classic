@@ -139,7 +139,9 @@ export class TrainingOrchestrator {
       successfulJumps: 0,
       blocksEncountered: 0,
       explorationScore: 0,
-      actionDistribution: new Array(NPC.TRAINING.MODEL.actionSize).fill(0),
+      actionDistribution: new Array(NPC.TRAINING.MODEL.actionDistribution).fill(
+        0
+      ),
       initialJumpsAttempted: new Map(),
       initialSuccessfulJumps: new Map(),
     };
@@ -422,7 +424,6 @@ export class TrainingOrchestrator {
       const actions = new Map();
       const previousPositions = new Map();
 
-      // ✅ CHANGED: Only select actions every N frames
       if (steps % ACTION_SELECTION_FREQUENCY === 0) {
         npcs.forEach((npc) => {
           if (npc.hideSeekState === NPC.GAME_STATES.FOUND) return;
@@ -430,59 +431,54 @@ export class TrainingOrchestrator {
           const currentEnvState = this.getNPCState(npc);
           const stateSequence = this.stateHistory.get(npc.userData.id);
 
-          if (steps % 100 === 0) {
-            const perceptionData = this.visionSystem.getVisionData(
-              npc,
-              this.npcSystem.npcs
-            );
-            this.visionSystem.logVisionState(npc, perceptionData);
-          }
-
-          const action = this.selectAction(npc, stateSequence);
-
-          // Store action for this NPC
-          npc.currentAction = action;
+          const actionGroups = this.selectAction(npc, stateSequence);
+          npc.currentActionGroups = actionGroups;
 
           actions.set(npc.userData.id, {
-            actionIndex: action,
+            actionGroups: actionGroups,
             currentEnvState,
           });
 
-          this.episodeStats.actionDistribution[action]++;
+          // Track action distribution (convert to index for logging)
+          const actionIndex =
+            this.seekerAgent.actionGroupsToIndex(actionGroups);
+          this.episodeStats.actionDistribution[Math.min(actionIndex, 215)] =
+            (this.episodeStats.actionDistribution[Math.min(actionIndex, 215)] ||
+              0) + 1;
 
           stateSequence.shift();
           stateSequence.push(currentEnvState);
-
           previousPositions.set(npc.userData.id, npc.position.clone());
         });
       } else {
-        // ✅ ADD: On non-selection frames, reuse previous actions
         npcs.forEach((npc) => {
           if (npc.hideSeekState === NPC.GAME_STATES.FOUND) return;
 
           const currentEnvState = this.getNPCState(npc);
-
           actions.set(npc.userData.id, {
-            actionIndex: npc.currentAction || 0,
+            actionGroups: npc.currentActionGroups || {
+              movement: 0,
+              jump: 0,
+              rotation: 0,
+              look: 0,
+              block: 0,
+            },
             currentEnvState,
           });
-
           previousPositions.set(npc.userData.id, npc.position.clone());
         });
       }
 
-      // ✅ CHANGED: Execute current action (not executeActionWithDuration)
+      // Execute actions
       if (!options.visual) {
-        actions.forEach(({ actionIndex }, npcId) => {
+        actions.forEach(({ actionGroups }, npcId) => {
           const npc = npcMap.get(npcId);
           if (npc && npc.hideSeekState !== NPC.GAME_STATES.FOUND) {
-            this.movementController.executeAction(npc, actionIndex, deltaTime);
-          }
-        });
-
-        npcs.forEach((npc) => {
-          if (npc.hideSeekState !== NPC.GAME_STATES.FOUND) {
-            this.movementController.updatePhysics(npc, deltaTime);
+            this.movementController.executeActionGroups(
+              npc,
+              actionGroups,
+              deltaTime
+            );
           }
         });
 
@@ -490,10 +486,14 @@ export class TrainingOrchestrator {
         // await this.sleep(1);
       } else {
         // Visual mode
-        actions.forEach(({ actionIndex }, npcId) => {
+        actions.forEach(({ actionGroups }, npcId) => {
           const npc = npcMap.get(npcId);
           if (npc && npc.hideSeekState !== NPC.GAME_STATES.FOUND) {
-            this.movementController.executeAction(npc, actionIndex, deltaTime);
+            this.movementController.executeActionGroups(
+              npc,
+              actionGroups,
+              deltaTime
+            );
           }
           const perceptionData = this.visionSystem.getVisionData(
             npc,
@@ -519,7 +519,7 @@ export class TrainingOrchestrator {
       // Rest of the reward calculation and training logic stays the same
       let stepReward = 0;
 
-      actions.forEach(({ actionIndex, currentEnvState }, npcId) => {
+      actions.forEach(({ actionGroups, currentEnvState }, npcId) => {
         const npc = npcMap.get(npcId);
         if (!npc) return;
 
@@ -576,7 +576,7 @@ export class TrainingOrchestrator {
 
         memory.add({
           state: currentEnvState,
-          action: actionIndex,
+          action: actionGroups,
           reward: reward + npc.rewardBuffer,
           nextState: nextEnvState,
           done: isDone,
@@ -584,7 +584,6 @@ export class TrainingOrchestrator {
         });
 
         npc.rewardBuffer = 0;
-
         npc.lastPosition.copy(npc.position);
         npc.lastYaw = npc.yaw;
       });
@@ -723,8 +722,8 @@ export class TrainingOrchestrator {
   calculateReward(npc, oldPos) {
     let reward = 0;
 
-    // Universal time penalty - encourages action
-    reward -= 0.01;
+    // Time penalty - unchanged
+    reward -= 0.005;
 
     const perceptionData = this.visionSystem.getVisionData(
       npc,
@@ -733,99 +732,146 @@ export class TrainingOrchestrator {
     const visibleNPCs = perceptionData.visibleNPCs;
     const distanceMoved = npc.position.distanceTo(oldPos);
 
+    // Initialize state to avoid undefined errors
+    npc.consecutiveStationary = npc.consecutiveStationary || 0;
+    npc.lastDistanceToHider = npc.lastDistanceToHider || null;
+    npc.lastDistanceToSeeker = npc.lastDistanceToSeeker || null;
+    npc.blocksInteracted = npc.blocksInteracted || 0;
+
+    // Fetch all hiders and seekers
+    const allHiders = this.npcSystem.npcs.filter((n) => n.role === "hider");
+    const allSeekers = this.npcSystem.npcs.filter((n) => n.role === "seeker");
+
     if (npc.role === "seeker") {
       // ========== SEEKER REWARDS ==========
-
       const visibleHiders = visibleNPCs.filter((n) => n.role === "hider");
 
-      if (visibleHiders.length > 0) {
-        const nearest = visibleHiders[0];
+      // Spotting reward - reduced to prevent over-rewarding
+      reward += visibleHiders.length * 0.2; // Down from 0.3
 
-        // Reward for closing distance to visible hider
+      if (visibleHiders.length > 0) {
+        const nearest = visibleHiders.reduce(
+          (min, n) => (n.distance < min.distance ? n : min),
+          visibleHiders[0]
+        );
+
+        // Distance closing - unchanged
         if (npc.lastDistanceToHider !== null) {
           const distanceDelta = npc.lastDistanceToHider - nearest.distance;
-          reward += distanceDelta * 1.0; // Approaching = positive, retreating = negative
+          reward += Math.min(distanceDelta * 0.5, 1.0);
         }
-
         npc.lastDistanceToHider = nearest.distance;
       } else {
-        // No hider visible - no reward for exploration
         npc.lastDistanceToHider = null;
+        // Exploration - unchanged
+        if (distanceMoved > 0.5) {
+          reward += 0.03;
+        }
       }
 
-      // Penalty for being stuck
+      // Stuck penalty - unchanged
       if (distanceMoved < 0.01) {
         npc.consecutiveStationary++;
         if (npc.consecutiveStationary > 10) {
-          reward -= 0.1; // Stronger than time penalty
-        }
-      } else {
-        npc.consecutiveStationary = 0;
-      }
-
-      // Boundary collision penalty
-      if (npc.boundaryCollision) {
-        reward -= 0.2;
-      }
-
-      // Catch bonus (immediate feedback for successful catch)
-      if (npc.justCaughtHider) {
-        reward += 10.0;
-        console.log(`[SEEKER CATCH] +10.0 reward for catching hider!`);
-        npc.justCaughtHider = false;
-      }
-    } else if (npc.role === "hider") {
-      // ========== HIDER REWARDS ==========
-
-      const visibleSeekers = visibleNPCs.filter((n) => n.role === "seeker");
-
-      if (visibleSeekers.length > 0) {
-        const nearest = visibleSeekers[0];
-
-        // Danger penalty - being close to seeker is bad
-        const threatLevel = Math.max(0, 1 - nearest.distance / 10);
-        reward -= threatLevel * 0.5;
-
-        // Reward for increasing distance from seeker
-        if (npc.lastDistanceToSeeker !== null) {
-          const distanceDelta = nearest.distance - npc.lastDistanceToSeeker;
-          reward += distanceDelta * 1.0; // Escaping = positive, getting caught = negative
-        }
-
-        npc.lastDistanceToSeeker = nearest.distance;
-      } else {
-        // Safe - no seeker visible (no reward, just neutral)
-        npc.lastDistanceToSeeker = null;
-      }
-
-      // Penalty for being stuck (hiders camping in holes learn nothing)
-      if (distanceMoved < 0.01) {
-        npc.consecutiveStationary++;
-        if (npc.consecutiveStationary > 30) {
-          // More lenient for hiders
           reward -= 0.05;
         }
       } else {
         npc.consecutiveStationary = 0;
       }
 
-      // Boundary collision penalty
+      // Boundary penalty - unchanged
       if (npc.boundaryCollision) {
-        reward -= 0.2;
+        reward -= 0.1;
       }
 
-      // Caught penalty (immediate feedback)
+      // Catch bonus - unchanged
+      if (npc.justCaughtHider) {
+        reward += 8.0;
+        console.log(`[SEEKER CATCH] +8.0 reward for catching hider!`);
+        npc.justCaughtHider = false;
+      }
+
+      // Team success - reduced and less frequent
+      const allHidersVisible = allHiders.every((h) =>
+        allSeekers.some((s) => this.visionSystem.hasLineOfSight(s, h))
+      );
+      if (allHidersVisible) {
+        reward += 0.5; // Down from 1.0
+      }
+    } else if (npc.role === "hider") {
+      // ========== HIDER REWARDS ==========
+      const visibleSeekers = visibleNPCs.filter((n) => n.role === "seeker");
+
+      // Hiding reward - reduced to balance
+      const isHidden = allSeekers.every(
+        (s) => !this.visionSystem.hasLineOfSight(s, npc)
+      );
+      if (isHidden) {
+        reward += 0.3; // Down from 0.5
+      }
+
+      if (visibleSeekers.length > 0) {
+        const nearest = visibleSeekers.reduce(
+          (min, n) => (n.distance < min.distance ? n : min),
+          visibleSeekers[0]
+        );
+
+        // Danger penalty - unchanged
+        const threatLevel = Math.max(0, 1 - nearest.distance / 10);
+        reward -= threatLevel * 0.3;
+
+        // Distance increase - unchanged
+        if (npc.lastDistanceToSeeker !== null) {
+          const distanceDelta = nearest.distance - npc.lastDistanceToSeeker;
+          reward += Math.min(distanceDelta * 0.5, 1.0);
+        }
+        npc.lastDistanceToSeeker = nearest.distance;
+      } else {
+        npc.lastDistanceToSeeker = null;
+      }
+
+      // Stuck penalty - unchanged
+      if (distanceMoved < 0.01) {
+        npc.consecutiveStationary++;
+        if (npc.consecutiveStationary > 10) {
+          reward -= 0.05;
+        }
+      } else {
+        npc.consecutiveStationary = 0;
+      }
+
+      // Boundary penalty - unchanged
+      if (npc.boundaryCollision) {
+        reward -= 0.1;
+      }
+
+      // Caught penalty - unchanged
       if (
         npc.hideSeekState === NPC.GAME_STATES.FOUND &&
         !npc.caughtPenaltyApplied
       ) {
-        reward -= 5.0;
+        reward -= 4.0;
         npc.caughtPenaltyApplied = true;
-        console.log(`[HIDER CAUGHT] -5.0 penalty for being caught`);
+        console.log(`[HIDER CAUGHT] -4.0 penalty for being caught`);
+      }
+
+      // Team hiding - reduced
+      const allHidden = allHiders.every((h) =>
+        allSeekers.every((s) => !this.visionSystem.hasLineOfSight(s, h))
+      );
+      if (allHidden) {
+        reward += 0.3; // Down from 0.5
       }
     }
 
-    return reward;
+    // Voxel interaction - capped to prevent runaway
+    if (npc.blocksInteracted > 0) {
+      reward += Math.min(0.1 * npc.blocksInteracted, 1.0); // Cap at 1.0 per step
+      npc.blocksInteracted = 0;
+    }
+
+    // Cap total reward per step to prevent extremes
+    return Math.max(Math.min(reward, 2.0), -2.0);
   }
 
   /**
@@ -894,7 +940,7 @@ export class TrainingOrchestrator {
     console.log(`EPISODE ${pad(episode, 4)} COMPLETE`);
     console.log(`${"=".repeat(80)}`);
 
-    // Basic metrics
+    // Performance
     console.log(`┌─ Performance ──────────────────────────────┐`);
     console.log(
       `│ Total Reward:     ${pad(
@@ -940,14 +986,18 @@ export class TrainingOrchestrator {
       Object.entries(metrics.npcRewards).forEach(([id, reward]) => {
         const displayId =
           id.length > 12 ? id.substring(0, 12) + "…" : id.padEnd(12);
+        const rewardColor = reward > 0 ? "+" : "";
         console.log(
-          `│ ${displayId}: ${pad(reward.toFixed(2), 10)}           │`
+          `│ ${displayId}: ${pad(
+            rewardColor + reward.toFixed(2),
+            10
+          )}           │`
         );
       });
       console.log(`└────────────────────────────────────────────┘`);
     }
 
-    // ➕ NEW: Experience Replay Buffer Stats
+    // Memory Buffer Stats
     console.log(`┌─ Memory Buffer ────────────────────────────┐`);
     const seekerStats = this.seekerMemory.getStats();
     const hiderStats = this.hiderMemory.getStats();
@@ -969,19 +1019,19 @@ export class TrainingOrchestrator {
     );
     console.log(`└────────────────────────────────────────────┘`);
 
-    // ➕ NEW: Reward Range Check (detect unclipped rewards)
+    // Reward Range Check
     const allRewards = Object.values(metrics.npcRewards || {});
     const minReward = Math.min(...allRewards, 0);
     const maxReward = Math.max(...allRewards, 0);
-    if (minReward < -10 || maxReward > 10) {
+    if (minReward < -50 || maxReward > 50) {
       console.warn(
-        `⚠️  REWARD OUT OF CLIPPED RANGE! Min: ${minReward.toFixed(
+        `⚠️  EXTREME REWARDS! Min: ${minReward.toFixed(
           2
         )}, Max: ${maxReward.toFixed(2)}`
       );
     }
 
-    // Exploration metrics
+    // Exploration
     console.log(`┌─ Exploration ──────────────────────────────┐`);
     console.log(
       `│ Distance Traveled: ${pad(
@@ -997,7 +1047,7 @@ export class TrainingOrchestrator {
     );
     console.log(`└────────────────────────────────────────────┘`);
 
-    // Jump metrics
+    // Jumping
     console.log(`┌─ Jumping ──────────────────────────────────┐`);
     console.log(
       `│ Jumps Attempted:   ${pad(metrics.jumpsAttempted, 9)}              │`
@@ -1014,61 +1064,82 @@ export class TrainingOrchestrator {
     );
     console.log(`└────────────────────────────────────────────┘`);
 
-    // ➕ NEW: Action Distribution Imbalance Check
+    // Action Group Distribution (NEW - shows combinations used)
+    console.log(`┌─ Top 10 Action Combinations ───────────────┐`);
     const totalActions = metrics.actionDistribution.reduce((a, b) => a + b, 0);
-    if (totalActions > 0) {
-      const maxActionPct = Math.max(
-        ...metrics.actionDistribution.map((c) => (c / totalActions) * 100)
-      );
-      if (maxActionPct > 70) {
-        const dominantIdx = metrics.actionDistribution.indexOf(
-          Math.max(...metrics.actionDistribution)
-        );
-        const actionNames = [
-          "Fwd",
-          "Back",
-          "Left",
-          "Right",
-          "Jump",
-          "RotL",
-          "RotR",
-          "RotU",
-          "RotD",
-        ];
-        console.warn(
-          `⚠️  ACTION IMBALANCE! "${
-            actionNames[dominantIdx]
-          }" used ${maxActionPct.toFixed(1)}% of the time`
-        );
-      }
-    }
 
-    // Action distribution
-    console.log(`┌─ Action Distribution ──────────────────────┐`);
-    const actionNames = [
-      "Forward",
-      "Backward",
-      "Left",
-      "Right",
-      "Jump",
-      "Rot.Left",
-      "Rot.Right",
-      "Rot.Up",
-      "Rot.Down",
-      "PlaceBlk",
-      "RemoveBlk",
-    ];
-    metrics.actionDistribution.forEach((count, idx) => {
-      const percentage =
-        totalActions > 0 ? ((count / totalActions) * 100).toFixed(1) : "0.0";
-      const bar = "█".repeat(Math.floor(parseFloat(percentage) / 2));
+    // Find top 10 most used combinations
+    const sortedActions = metrics.actionDistribution
+      .map((count, idx) => ({ idx, count }))
+      .filter((a) => a.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    sortedActions.forEach(({ idx, count }) => {
+      const groups = this.seekerAgent.indexToActionGroups(idx);
+      const actionStr = this.encoder.decodeAction(groups);
+      const percentage = ((count / totalActions) * 100).toFixed(1);
+      const bar = "█".repeat(
+        Math.min(Math.floor(parseFloat(percentage) / 2), 20)
+      );
+
       console.log(
-        `│ ${actionNames[idx].padEnd(10)}: ${bar.padEnd(20)} ${pad(
+        `│ ${actionStr.padEnd(15)}: ${bar.padEnd(20)} ${pad(
           percentage + "%",
           6
         )} │`
       );
     });
+    console.log(`└────────────────────────────────────────────┘`);
+
+    // Action Group Breakdown (NEW - shows individual action usage)
+    console.log(`┌─ Action Usage Breakdown ───────────────────┐`);
+
+    // Count usage per action type
+    const movementCounts = [0, 0, 0]; // none, forward, backward
+    const jumpCounts = [0, 0]; // no, yes
+    const rotationCounts = [0, 0, 0]; // none, left, right
+    const lookCounts = [0, 0, 0]; // none, up, down
+    const blockCounts = [0, 0, 0]; // none, place, remove
+
+    metrics.actionDistribution.forEach((count, idx) => {
+      if (count > 0) {
+        const groups = this.seekerAgent.indexToActionGroups(idx);
+        movementCounts[groups.movement] += count;
+        jumpCounts[groups.jump] += count;
+        rotationCounts[groups.rotation] += count;
+        lookCounts[groups.look] += count;
+        blockCounts[groups.block] += count;
+      }
+    });
+
+    const formatPct = (count, total) =>
+      ((count / total) * 100).toFixed(1) + "%";
+
+    console.log(
+      `│ Movement:  none=${formatPct(movementCounts[0], totalActions)} ` +
+        `fwd=${formatPct(movementCounts[1], totalActions)} ` +
+        `back=${formatPct(movementCounts[2], totalActions)} │`
+    );
+    console.log(
+      `│ Jump:      no=${formatPct(jumpCounts[0], totalActions)} ` +
+        `yes=${formatPct(jumpCounts[1], totalActions)}                    │`
+    );
+    console.log(
+      `│ Rotation:  none=${formatPct(rotationCounts[0], totalActions)} ` +
+        `left=${formatPct(rotationCounts[1], totalActions)} ` +
+        `right=${formatPct(rotationCounts[2], totalActions)} │`
+    );
+    console.log(
+      `│ Look:      none=${formatPct(lookCounts[0], totalActions)} ` +
+        `up=${formatPct(lookCounts[1], totalActions)} ` +
+        `down=${formatPct(lookCounts[2], totalActions)}     │`
+    );
+    console.log(
+      `│ Block:     none=${formatPct(blockCounts[0], totalActions)} ` +
+        `place=${formatPct(blockCounts[1], totalActions)} ` +
+        `remove=${formatPct(blockCounts[2], totalActions)} │`
+    );
     console.log(`└────────────────────────────────────────────┘`);
 
     // Epsilon values
@@ -1081,7 +1152,7 @@ export class TrainingOrchestrator {
     );
     console.log(`└────────────────────────────────────────────┘`);
 
-    // Progress tracking
+    // Progress tracking every 10 episodes
     if (this.episode % 10 === 0 && this.trainingStartTime) {
       const elapsed = Date.now() - this.trainingStartTime;
       const avgTimePerEpisode = elapsed / this.episode;
@@ -1092,12 +1163,13 @@ export class TrainingOrchestrator {
       console.log(`\n📊 Training Progress:`);
       console.log(
         `   Episodes Complete: ${this.episode}/2000 (${(
-          this.episode / 20
+          (this.episode / 2000) *
+          100
         ).toFixed(1)}%)`
       );
       console.log(`   ETA: ${etaHours}h ${etaMinutes}m remaining`);
 
-      // Calculate rolling averages
+      // Rolling averages
       const recentMetrics = this.metrics.slice(-10);
       const avgReward =
         recentMetrics.reduce((sum, m) => sum + m.totalReward, 0) /
@@ -1108,11 +1180,15 @@ export class TrainingOrchestrator {
       const avgExploration =
         recentMetrics.reduce((sum, m) => sum + m.explorationScore, 0) /
         recentMetrics.length;
+      const avgCatches =
+        recentMetrics.reduce((sum, m) => sum + m.hidersFound, 0) /
+        recentMetrics.length;
 
       console.log(`   10-Episode Averages:`);
       console.log(`     • Reward: ${avgReward.toFixed(2)}`);
       console.log(`     • Distance: ${avgDistance.toFixed(1)} blocks`);
       console.log(`     • Exploration: ${avgExploration.toFixed(1)} chunks`);
+      console.log(`     • Catches: ${avgCatches.toFixed(2)}/2 hiders`);
     }
   }
 

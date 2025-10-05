@@ -16,13 +16,13 @@ export class StateEncoder {
       onGround: { start: 8, size: 1 },
       visualField: { start: 9, size: 64 },
       memory: { start: 73, size: 16 },
-      actionHistory: { start: 89, size: 11 },
-      gameInfo: { start: 100, size: 5 },
-      roleSpecific: { start: 105, size: 14 },
-      boundaryProximity: { start: 119, size: 4 },
-      jumpInfo: { start: 123, size: 4 },
-      voxelNavigation: { start: 127, size: 12 },
-      blockInteraction: { start: 139, size: 6 },
+      actionHistory: { start: 89, size: 9 },
+      gameInfo: { start: 98, size: 5 },
+      roleSpecific: { start: 103, size: 14 },
+      boundaryProximity: { start: 117, size: 4 },
+      jumpInfo: { start: 121, size: 4 },
+      voxelNavigation: { start: 125, size: 12 },
+      blockInteraction: { start: 137, size: 6 },
     };
   }
 
@@ -456,21 +456,25 @@ export class StateEncoder {
     return 3; // Placeholder - implement if needed
   }
 
-  decodeAction(actionIndex) {
-    const actions = [
-      "move_forward",
-      "move_backward",
-      "move_left",
-      "move_right",
-      "jump",
-      "rotate_left",
-      "rotate_right",
-      "look_up",
-      "look_down",
-      "place_block",
-      "remove_block",
-    ];
-    return actions[actionIndex] || "unknown";
+  decodeAction(actionGroups) {
+    if (typeof actionGroups === "number") {
+      // Backwards compatibility with old single-action system
+      actionGroups = this.seekerAgent.indexToActionGroups(actionGroups);
+    }
+
+    const parts = [];
+
+    if (actionGroups.movement === 1) parts.push("fwd");
+    if (actionGroups.movement === 2) parts.push("back");
+    if (actionGroups.jump === 1) parts.push("jump");
+    if (actionGroups.rotation === 1) parts.push("rotL");
+    if (actionGroups.rotation === 2) parts.push("rotR");
+    if (actionGroups.look === 1) parts.push("lookU");
+    if (actionGroups.look === 2) parts.push("lookD");
+    if (actionGroups.block === 1) parts.push("place");
+    if (actionGroups.block === 2) parts.push("remove");
+
+    return parts.length > 0 ? parts.join("+") : "idle";
   }
 }
 

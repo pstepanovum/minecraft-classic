@@ -17,7 +17,7 @@ export class DQNAgent {
     this.learningRate = NPC.TRAINING.MODEL.learningRate;
     this.stateSize = NPC.TRAINING.MODEL.stateSize;
     this.actionSize = NPC.TRAINING.MODEL.actionSize;
-    
+
     this.model = null;
     this.targetModel = null;
     this.trainingStep = 0;
@@ -46,9 +46,9 @@ export class DQNAgent {
     testInput.dispose();
     testOutput.dispose();
 
-    if (outputData[0].some(v => !isFinite(v))) {
+    if (outputData[0].some((v) => !isFinite(v))) {
       console.error(`[${this.role}] Model initialized with NaN/Inf values!`);
-      throw new Error('Model initialization failed');
+      throw new Error("Model initialization failed");
     }
 
     console.log(`[${this.role}] Model initialized successfully`);
@@ -96,62 +96,82 @@ export class DQNAgent {
     model.compile({
       optimizer: tf.train.adam(adjustedLR),
       loss: "meanSquaredError",
-      metrics: ['mae'],
+      metrics: ["mae"],
     });
 
     return model;
   }
 
   selectAction(stateSequence) {
-    if (this.recentActions.length >= this.maxRecentActions) {
-      this.recentActions.shift();
-    }
-
     const explorationChance = Math.max(
       this.epsilon,
       this.explorationBonus * (1 - this.epsilon)
     );
 
     if (Math.random() < explorationChance) {
-      let action;
-
-      if (Math.random() < 0.3 && this.role === "seeker") {
-        const movementActions = [0, 1, 2, 3, 4];
-        action =
-          movementActions[Math.floor(Math.random() * movementActions.length)];
-      } else if (Math.random() < 0.5) {
-        action = this.selectLeastUsedAction();
-      } else {
-        action = Math.floor(Math.random() * this.actionSize);
-      }
-
-      const recentCount = this.recentActions.filter((a) => a === action).length;
-      if (recentCount > 5 && Math.random() < 0.7) {
-        action =
-          (action + 1 + Math.floor(Math.random() * (this.actionSize - 1))) %
-          this.actionSize;
-      }
-
-      this.actionCounts[action]++;
-      this.recentActions.push(action);
-      return action;
+      // Random exploration - pick random value in each group
+      return {
+        movement: Math.floor(Math.random() * 3),
+        jump: Math.floor(Math.random() * 2),
+        rotation: Math.floor(Math.random() * 3),
+        look: Math.floor(Math.random() * 3),
+        block: Math.floor(Math.random() * 3),
+      };
     } else {
       return tf.tidy(() => {
         const stateTensor = tf.tensor2d(stateSequence).expandDims(0);
+        const predictions = this.model.predict(stateTensor, {
+          training: false,
+        });
+        const values = predictions.dataSync();
 
-        let predictions = this.model.predict(stateTensor, { training: false });
-
-        const noise = tf.randomNormal(predictions.shape, 0, 0.01);
-        predictions = predictions.add(noise);
-
-        const actionIndex = predictions.argMax(-1).dataSync()[0];
-
-        this.actionCounts[actionIndex]++;
-        this.recentActions.push(actionIndex);
-
-        return actionIndex;
+        // Split into groups and pick best in each
+        return {
+          movement: this.argmax(Array.from(values.slice(0, 3))),
+          jump: this.argmax(Array.from(values.slice(3, 5))),
+          rotation: this.argmax(Array.from(values.slice(5, 8))),
+          look: this.argmax(Array.from(values.slice(8, 11))),
+          block: this.argmax(Array.from(values.slice(11, 14))),
+        };
       });
     }
+  }
+
+  argmax(array) {
+    let maxIdx = 0;
+    let maxVal = array[0];
+    for (let i = 1; i < array.length; i++) {
+      if (array[i] > maxVal) {
+        maxVal = array[i];
+        maxIdx = i;
+      }
+    }
+    return maxIdx;
+  }
+
+  actionGroupsToIndex(groups) {
+    // Encode as: movement * 72 + jump * 36 + rotation * 12 + look * 3 + block
+    return (
+      groups.movement * 72 +
+      groups.jump * 36 +
+      groups.rotation * 12 +
+      groups.look * 3 +
+      groups.block
+    );
+  }
+
+  // Convert single index back to action groups
+  indexToActionGroups(index) {
+    const movement = Math.floor(index / 72);
+    const remainder1 = index % 72;
+    const jump = Math.floor(remainder1 / 36);
+    const remainder2 = remainder1 % 36;
+    const rotation = Math.floor(remainder2 / 12);
+    const remainder3 = remainder2 % 12;
+    const look = Math.floor(remainder3 / 3);
+    const block = remainder3 % 3;
+
+    return { movement, jump, rotation, look, block };
   }
 
   selectLeastUsedAction() {
@@ -185,122 +205,108 @@ export class DQNAgent {
   }
 
   async train(memory, stateHistory) {
-    if (!memory.canSample(this.config.batchSize)) {
-      return null;
-    }
-
-    if (this.trainingInProgress) {
-      return null;
-    }
+    if (!memory.canSample(this.config.batchSize)) return null;
+    if (this.trainingInProgress) return null;
 
     this.trainingInProgress = true;
 
     try {
       const batch = memory.sample(this.config.batchSize);
-
-      const stateSequences = [];
-      const nextStateSequences = [];
-      const actions = [];
-      const rewards = [];
-      const dones = [];
+      const xs = [];
+      const ys = [];
 
       for (const experience of batch) {
         const liveHistory = stateHistory.get(experience.id);
         if (!liveHistory) continue;
 
-        stateSequences.push(liveHistory.slice());
-        nextStateSequences.push(
-          liveHistory.slice(1).concat([experience.nextState])
-        );
-
-        actions.push(experience.action);
-        // CLIP REWARDS HERE
-        rewards.push(this.clipReward(experience.reward));
-        dones.push(experience.done);
-      }
-
-      if (stateSequences.length === 0) {
-        return null;
-      }
-
-      const xs = [];
-      const ys = [];
-
-      for (let i = 0; i < stateSequences.length; i++) {
-        const stateSeq = stateSequences[i];
-        const nextStateSeq = nextStateSequences[i];
-        const action = actions[i];
-        const reward = rewards[i];
-        const done = dones[i];
+        const stateSeq = liveHistory.slice();
+        const nextStateSeq = liveHistory
+          .slice(1)
+          .concat([experience.nextState]);
 
         const stateTensor = tf.tensor3d([stateSeq]);
         const currentQ = this.model.predict(stateTensor, { training: false });
         const currentQArray = await currentQ.array();
 
-        // CHECK FOR NaN IN PREDICTIONS
-        if (currentQArray[0].some(v => !isFinite(v))) {
-          console.error(`[${this.role}] Model predictions contain NaN/Inf - skipping sample`);
-          stateTensor.dispose();
-          currentQ.dispose();
-          continue;
-        }
-
-        let targetQ = reward;
-
-        if (!done) {
-          const nextStateTensor = tf.tensor3d([nextStateSeq]);
-
-          const nextQMain = this.model.predict(nextStateTensor, {
-            training: false,
-          });
-          const nextQMainArray = await nextQMain.array();
-          
-          // CHECK FOR NaN
-          if (nextQMainArray[0].some(v => !isFinite(v))) {
-            console.error(`[${this.role}] Next Q predictions contain NaN/Inf - using reward only`);
-            nextQMain.dispose();
-            nextStateTensor.dispose();
-            targetQ = reward; // Fallback: just use immediate reward
-          } else {
-            const bestNextAction = nextQMainArray[0].indexOf(
-              Math.max(...nextQMainArray[0])
-            );
-
-            const nextQTarget = this.targetModel.predict(nextStateTensor, {
-              training: false,
-            });
-            const nextQTargetArray = await nextQTarget.array();
-
-            const nextQValue = nextQTargetArray[0][bestNextAction];
-            
-            // CHECK nextQValue
-            if (isFinite(nextQValue)) {
-              targetQ += this.gamma * nextQValue;
-            } else {
-              console.warn(`[${this.role}] Invalid next Q-value, using reward only`);
-              targetQ = reward;
-            }
-
-            nextQMain.dispose();
-            nextQTarget.dispose();
-            nextStateTensor.dispose();
-          }
-        }
-
-        // FINAL NaN CHECK
-        if (!isFinite(targetQ)) {
-          console.error(`[${this.role}] Invalid targetQ: ${targetQ} for action ${action}`);
+        if (currentQArray[0].some((v) => !isFinite(v))) {
           stateTensor.dispose();
           currentQ.dispose();
           continue;
         }
 
         const target = [...currentQArray[0]];
-        target[action] = targetQ;
+        const actionGroups = experience.action; // Now an object
+        const reward = this.clipReward(experience.reward);
 
-        // VALIDATE TARGET ARRAY
-        if (target.some(v => !isFinite(v))) {
-          console.error(`[${this.role}] Invalid target values:`, target);
+        if (!experience.done) {
+          const nextStateTensor = tf.tensor3d([nextStateSeq]);
+          const nextQMain = this.model.predict(nextStateTensor, {
+            training: false,
+          });
+          const nextQMainArray = await nextQMain.array();
+
+          if (!nextQMainArray[0].some((v) => !isFinite(v))) {
+            // Find best action combination for next state
+            const bestNextMovement = this.argmax(nextQMainArray[0].slice(0, 3));
+            const bestNextJump = this.argmax(nextQMainArray[0].slice(3, 5));
+            const bestNextRotation = this.argmax(nextQMainArray[0].slice(5, 8));
+            const bestNextLook = this.argmax(nextQMainArray[0].slice(8, 11));
+            const bestNextBlock = this.argmax(nextQMainArray[0].slice(11, 14));
+
+            // Get Q-values from target network for best actions
+            const nextQTarget = this.targetModel.predict(nextStateTensor, {
+              training: false,
+            });
+            const nextQTargetArray = await nextQTarget.array();
+
+            const nextQValueMovement = nextQTargetArray[0][bestNextMovement];
+            const nextQValueJump = nextQTargetArray[0][3 + bestNextJump];
+            const nextQValueRotation =
+              nextQTargetArray[0][5 + bestNextRotation];
+            const nextQValueLook = nextQTargetArray[0][8 + bestNextLook];
+            const nextQValueBlock = nextQTargetArray[0][11 + bestNextBlock];
+
+            // Average Q-value across all groups (or sum, experiment with this)
+            const avgNextQ =
+              (nextQValueMovement +
+                nextQValueJump +
+                nextQValueRotation +
+                nextQValueLook +
+                nextQValueBlock) /
+              5;
+
+            if (isFinite(avgNextQ)) {
+              // Update Q-values for each selected action in each group
+              target[actionGroups.movement] = reward + this.gamma * avgNextQ;
+              target[3 + actionGroups.jump] = reward + this.gamma * avgNextQ;
+              target[5 + actionGroups.rotation] =
+                reward + this.gamma * avgNextQ;
+              target[8 + actionGroups.look] = reward + this.gamma * avgNextQ;
+              target[11 + actionGroups.block] = reward + this.gamma * avgNextQ;
+            } else {
+              // Fallback to immediate reward
+              target[actionGroups.movement] = reward;
+              target[3 + actionGroups.jump] = reward;
+              target[5 + actionGroups.rotation] = reward;
+              target[8 + actionGroups.look] = reward;
+              target[11 + actionGroups.block] = reward;
+            }
+
+            nextQTarget.dispose();
+          }
+
+          nextQMain.dispose();
+          nextStateTensor.dispose();
+        } else {
+          // Terminal state - only immediate reward
+          target[actionGroups.movement] = reward;
+          target[3 + actionGroups.jump] = reward;
+          target[5 + actionGroups.rotation] = reward;
+          target[8 + actionGroups.look] = reward;
+          target[11 + actionGroups.block] = reward;
+        }
+
+        if (target.some((v) => !isFinite(v))) {
           stateTensor.dispose();
           currentQ.dispose();
           continue;
@@ -313,10 +319,7 @@ export class DQNAgent {
         currentQ.dispose();
       }
 
-      if (xs.length === 0) {
-        console.warn(`[${this.role}] No valid training samples after filtering`);
-        return null;
-      }
+      if (xs.length === 0) return null;
 
       const xTensor = tf.tensor3d(xs);
       const yTensor = tf.tensor2d(ys);
@@ -332,8 +335,9 @@ export class DQNAgent {
 
       if (this.trainingStep % 100 === 0) {
         console.log(
-          `[${this.role}] Step ${this.trainingStep}, Loss: ${loss.toFixed(4)}, ` +
-          `Epsilon: ${this.epsilon.toFixed(3)}, Samples: ${xs.length}/${stateSequences.length}`
+          `[${this.role}] Step ${this.trainingStep}, Loss: ${loss.toFixed(
+            4
+          )}, ` + `Epsilon: ${this.epsilon.toFixed(3)}`
         );
       }
 
@@ -341,7 +345,6 @@ export class DQNAgent {
       yTensor.dispose();
 
       this.trainingStep++;
-
       return loss;
     } catch (error) {
       console.error(`[${this.role}] Training error:`, error);
@@ -390,7 +393,7 @@ export class DQNAgent {
       this.actionCounts = this.actionCounts.map((c) => Math.floor(c / 2));
     }
   }
-  
+
   summary() {
     if (!this.model) return;
     try {

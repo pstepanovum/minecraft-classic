@@ -1,14 +1,17 @@
 // ==============================================================
 // FILE: research/src/npc/physics/npc-vision-system.js
 // ==============================================================
+
+import { NPC } from "../../npc/config-npc-behavior.js";
+
 export class NPCVisionSystem {
   constructor(config = {}) {
-    this.visionRange = 32;
-    this.visionAngle = config.visionAngle || Math.PI / 2;
-    this.rayCount = 128;
-    this.rayPrecisionAngle = 0.7;
+    this.visionRange = NPC.VISION.visionRange;
+    this.visionAngle = NPC.VISION.visionAngle;
+    this.rayCount = NPC.VISION.rayCount;
+    this.rayPrecisionAngle = NPC.VISION.rayPrecisionAngle;
 
-    this.debug = config.debug || false;
+    this.debug = NPC.VISION.debug;
     this.chunkManager = null;
 
     this.debugLines = new Map();
@@ -241,11 +244,7 @@ export class NPCVisionSystem {
           z: -Math.cos(rayAngle) * Math.cos(pitchAngle),
         };
 
-        const rayResult = this.castSingleRay(
-          observer,
-          direction,
-          allNPCs,
-        );
+        const rayResult = this.castSingleRay(observer, direction, allNPCs);
 
         rays.push(rayResult);
       }
@@ -276,26 +275,29 @@ export class NPCVisionSystem {
 
       const toTarget = {
         x: target.position.x - startPos.x,
-        y: (target.position.y + 0.85) - startPos.y, // Target chest height
+        y: target.position.y + 0.85 - startPos.y, // Target chest height
         z: target.position.z - startPos.z,
       };
 
       const distanceToTarget = Math.sqrt(
-        toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z
+        toTarget.x * toTarget.x +
+          toTarget.y * toTarget.y +
+          toTarget.z * toTarget.z
       );
 
       if (distanceToTarget > this.visionRange) continue;
 
       // Calculate how close target is to ray direction
-      const dotProduct = 
-        direction.x * toTarget.x + 
-        direction.y * toTarget.y + 
+      const dotProduct =
+        direction.x * toTarget.x +
+        direction.y * toTarget.y +
         direction.z * toTarget.z;
-      
+
       const cosAngle = dotProduct / distanceToTarget;
-      
+
       // Much wider detection angle - 45 degrees
-      if (cosAngle > Math.cos(0.78)) { // 0.78 rad ~ 45 degrees
+      if (cosAngle > Math.cos(0.78)) {
+        // 0.78 rad ~ 45 degrees
         if (distanceToTarget < closestHit.distance) {
           // Verify line of sight
           if (this.raycastToTarget(startPos, direction, distanceToTarget)) {
@@ -415,15 +417,24 @@ export class NPCVisionSystem {
 
     const dirName = this.getDirectionName(observer.yaw);
     const pos = observer.position;
-    
+
     console.log(
-      `\n👁️ ${observer.userData.id} (${observer.role}) at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) facing ${dirName} (yaw: ${observer.yaw.toFixed(2)})`
+      `\n👁️ ${observer.userData.id} (${observer.role}) at (${pos.x.toFixed(
+        1
+      )}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(
+        1
+      )}) facing ${dirName} (yaw: ${observer.yaw.toFixed(2)})`
     );
 
     // NPC visibility (the actual perception used by AI)
     if (visionData.visibleNPCs.length > 0) {
       const targets = visionData.visibleNPCs
-        .map((n) => `${n.id}(${n.role}) at ${n.distance.toFixed(1)}u, dir:(${n.direction.x.toFixed(2)}, ${n.direction.z.toFixed(2)})`)
+        .map(
+          (n) =>
+            `${n.id}(${n.role}) at ${n.distance.toFixed(
+              1
+            )}u, dir:(${n.direction.x.toFixed(2)}, ${n.direction.z.toFixed(2)})`
+        )
         .join("\n     ");
       console.log(`   ✅ SEES: ${targets}`);
     } else {
@@ -432,28 +443,38 @@ export class NPCVisionSystem {
 
     // Ray statistics — now showing UNIQUE NPCs detected by rays
     const totalRays = visionData.raycastData.rays.length;
-    const blockHits = visionData.raycastData.rays.filter(r => r.hit && !r.isPlayer).length;
+    const blockHits = visionData.raycastData.rays.filter(
+      (r) => r.hit && !r.isPlayer
+    ).length;
 
     const rayDetectedNPCs = new Set();
-    const npcRays = visionData.raycastData.rays.filter(r => r.hit && r.isPlayer);
-    npcRays.forEach(r => {
+    const npcRays = visionData.raycastData.rays.filter(
+      (r) => r.hit && r.isPlayer
+    );
+    npcRays.forEach((r) => {
       if (r.hitNPC?.id) rayDetectedNPCs.add(r.hitNPC.id);
     });
     const uniqueRayNPCs = rayDetectedNPCs.size;
 
-    console.log(`   📊 Rays: ${totalRays} total, ${blockHits} blocks, ${uniqueRayNPCs} unique NPCs (ray-detected)`);
-    console.log(`   🧠 Perception: ${visionData.visibleNPCs.length} unique NPCs (used for decisions)`);
+    console.log(
+      `   📊 Rays: ${totalRays} total, ${blockHits} blocks, ${uniqueRayNPCs} unique NPCs (ray-detected)`
+    );
+    console.log(
+      `   🧠 Perception: ${visionData.visibleNPCs.length} unique NPCs (used for decisions)`
+    );
 
     // Distance distribution (from rays)
     if (npcRays.length > 0) {
-      const distances = npcRays.map(r => r.distance.toFixed(1));
-      console.log(`   📏 NPC ray distances: ${distances.join(', ')}`);
+      const distances = npcRays.map((r) => r.distance.toFixed(1));
+      console.log(`   📏 NPC ray distances: ${distances.join(", ")}`);
     }
 
     // Closest obstacle
-    const obstacleRays = visionData.raycastData.rays.filter(r => r.hit && !r.isPlayer);
+    const obstacleRays = visionData.raycastData.rays.filter(
+      (r) => r.hit && !r.isPlayer
+    );
     if (obstacleRays.length > 0) {
-      const closest = Math.min(...obstacleRays.map(r => r.distance));
+      const closest = Math.min(...obstacleRays.map((r) => r.distance));
       console.log(`   🧱 Closest obstacle: ${closest.toFixed(1)}u`);
     }
   }

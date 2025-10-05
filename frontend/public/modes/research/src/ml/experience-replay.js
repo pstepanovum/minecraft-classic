@@ -4,10 +4,10 @@
 import { NPC } from "../npc/config-npc-behavior.js";
 /**
  * Experience Replay Buffer for Deep Q-Learning
- * 
+ *
  * Stores agent experiences and provides random sampling for training.
  * Implements circular buffer to prevent unbounded memory growth.
- * 
+ *
  * Critical for DQN: Breaks temporal correlations in sequential data,
  * enabling stable neural network training.
  */
@@ -48,11 +48,21 @@ export class ExperienceReplay {
    * Validate experience structure
    */
   isValidExperience(exp) {
+    const isValidAction =
+      typeof exp.action === "number" ||
+      (typeof exp.action === "object" &&
+        exp.action !== null &&
+        typeof exp.action.movement === "number" &&
+        typeof exp.action.jump === "number" &&
+        typeof exp.action.rotation === "number" &&
+        typeof exp.action.look === "number" &&
+        typeof exp.action.block === "number");
+
     return (
       exp &&
       Array.isArray(exp.state) &&
       Array.isArray(exp.nextState) &&
-      typeof exp.action === "number" &&
+      isValidAction &&
       typeof exp.reward === "number" &&
       typeof exp.done === "boolean"
     );
@@ -101,7 +111,9 @@ export class ExperienceReplay {
     } else {
       // Wrap-around case: get from end + beginning
       return [
-        ...this.buffer.slice(this.buffer.length - (actualCount - this.position)),
+        ...this.buffer.slice(
+          this.buffer.length - (actualCount - this.position)
+        ),
         ...this.buffer.slice(0, this.position),
       ];
     }
@@ -136,7 +148,9 @@ export class ExperienceReplay {
       utilization: ((this.buffer.length / this.maxSize) * 100).toFixed(1) + "%",
       totalExperiences: this.totalExperiences,
       samplesDrawn: this.samplesDrawn,
-      avgReward: (rewards.reduce((a, b) => a + b, 0) / rewards.length).toFixed(3),
+      avgReward: (rewards.reduce((a, b) => a + b, 0) / rewards.length).toFixed(
+        3
+      ),
       minReward: Math.min(...rewards).toFixed(3),
       maxReward: Math.max(...rewards).toFixed(3),
       episodesStored: dones.length,
@@ -158,13 +172,15 @@ export class ExperienceReplay {
    * Import experiences (for transfer learning or checkpoint restoration)
    */
   import(experiences) {
-    const validCount = experiences.filter(exp => {
+    const validCount = experiences.filter((exp) => {
       const isValid = this.isValidExperience(exp);
       if (isValid) this.add(exp);
       return isValid;
     }).length;
 
-    console.log(`Imported ${validCount}/${experiences.length} valid experiences`);
+    console.log(
+      `Imported ${validCount}/${experiences.length} valid experiences`
+    );
     return validCount;
   }
 
