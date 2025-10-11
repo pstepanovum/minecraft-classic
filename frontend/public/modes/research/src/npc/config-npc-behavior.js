@@ -1,23 +1,11 @@
-// ==============================================================
-// FILE: research/src/npc/config-npc-behavior.js (ADJUSTED)
-// ==============================================================
-
 export const NPC = {
-  //--------------------------------------------------------------//
-  //                    Core Physics System
-  //--------------------------------------------------------------//
   PHYSICS: {
-    // Vertical physics (per second values)
-    JUMP_SPEED: 8.4, // blocks/second (matching player)
-    GRAVITY: 32.0, // blocks/second²
-    TERMINAL_VELOCITY: -78.4, // blocks/second
-
-    // Horizontal movement (per second values)
-    WALK_SPEED: 4.0, // blocks/second (slightly slower than player)
-    SPRINT_SPEED: 5.6, // blocks/second (matching player sprint)
-    SNEAK_SPEED: 1.3, // blocks/second (matching player sneak)
-
-    // Collision detection (unchanged - these are sizes, not velocities)
+    JUMP_SPEED: 8.4,
+    GRAVITY: 32.0,
+    TERMINAL_VELOCITY: -78.4,
+    WALK_SPEED: 4.0,
+    SPRINT_SPEED: 5.6,
+    SNEAK_SPEED: 1.3,
     PLAYER_WIDTH: 0.6,
     PLAYER_HEIGHT: 1.7,
     COLLISION_WIDTH: 0.5,
@@ -26,11 +14,11 @@ export const NPC = {
   },
 
   VISION: {
-    visionRange: 25,
-    visionAngle: Math.PI / 2,
-    rayCount: 64,
+    visionRange: 32,          // Reduced from 64 - more realistic
+    visionAngle: Math.PI / 2.5,   // ~72° - narrower, more realistic
+    rayCount: 64,              // Increased from 32 - better perception
     rayPrecisionAngle: 0.2,
-    debug: false,
+    debug: true,
   },
 
   BLOCK_REMOVAL: {
@@ -42,30 +30,22 @@ export const NPC = {
     availableBlockTypes: [1, 2, 3, 4, 5],
   },
 
-  //--------------------------------------------------------------//
-  //                 Hide and Seek Game
-  //--------------------------------------------------------------//
   HIDE_AND_SEEK: {
     seekerCount: 1,
     hiderCount: 2,
-    gameTimeLimit: 30000, // 30 seconds
-    countdownTime: 100, // 1 second
+    gameTimeLimit: 45000,         // 45 seconds - shorter for faster episodes
+    countdownTime: 5000,          // 5 seconds prep time - enough to hide
 
-    // Seeker behavior
     SEEKER: {
-      detectionTime: 400,
+      detectionTime: 1000,        // 1 second to catch - more forgiving
       visualIndicatorColor: 0xff4444,
     },
 
-    // Hider behavior
     HIDER: {
       visualIndicatorColor: 0x44ff44,
     },
   },
 
-  //--------------------------------------------------------------//
-  //                      Game States
-  //--------------------------------------------------------------//
   GAME_STATES: {
     WAITING: "waiting",
     COUNTDOWN: "countdown",
@@ -76,9 +56,6 @@ export const NPC = {
     GAME_OVER: "game_over",
   },
 
-  //--------------------------------------------------------------//
-  //                      Visual System
-  //--------------------------------------------------------------//
   VISUALS: {
     showNPCStatus: true,
     showVisionCones: false,
@@ -86,81 +63,74 @@ export const NPC = {
     effectDuration: 1000,
   },
 
-  //--------------------------------------------------------------//
-  //              TRAINING CONFIGURATION
-  //--------------------------------------------------------------//
   TRAINING: {
     enabled: true,
 
-    // Model configuration
     MODEL: {
       hiddenLayers: [128, 64, 32],
-      learningRate: 0.0005,
-      gamma: 0.99,
+      learningRate: 0.001,        // Increased from 0.0005 - faster initial learning
+      gamma: 0.95,                // Reduced from 0.99 - focus on immediate rewards
       epsilon: 1.0,
-      epsilonDecay: 0.999,
-      epsilonMin: 0.05,
+      epsilonDecay: 0.995,        // Faster decay from 0.999 - exploit sooner
+      epsilonMin: 0.1,            // Higher min from 0.05 - maintain some exploration
       stateSize: 139,
       actionSize: 14,
-      batchSize: 32,
-      memorySize: 10000,
+      batchSize: 64,              // Increased from 32 - more stable updates
+      memorySize: 20000,          // Increased from 10000 - more diverse experiences
 
       ACTION_GROUPS: {
-        movement: 3, // none, forward, backward
-        jump: 2, // no, yes
-        rotation: 3, // none, left, right
-        look: 3, // none, up, down
-        block: 3, // none, place, remove
+        movement: 3,
+        jump: 2,
+        rotation: 3,
+        look: 3,
+        block: 3,
       },
 
-      actionDistribution: 216, // 3*2*3*3*3
+      actionDistribution: 216,
 
-      rewardClipMin: -1,
-      rewardClipMax: 1,
+      rewardClipMin: -2.0,        // Allow larger penalties
+      rewardClipMax: 2.0,         // Allow larger rewards
     },
 
-    // Training parameters
     TRAINING: {
-      episodes: 2000,
-      maxStepsPerEpisode: 900,
-      updateFrequency: 15,
-      targetUpdateFrequency: 1500,
-      saveFrequency: 50,
+      episodes: 500,              // Realistic goal for class project
+      maxStepsPerEpisode: 3000, // 3000 steps per episode
+      updateFrequency: 4,         // Train more often (every 4 steps vs 15)
+      targetUpdateFrequency: 500, // More frequent updates (from 1500)
+      saveFrequency: 25,          // Save every 25 episodes
       validationFrequency: 10,
     },
 
     REWARDS: {
-      // Hider rewards
       HIDER: {
-        survivalPerSecond: 0.02, // Small per-step survival
-        detectedBySeeker: -0.5, // Scaled danger penalty
-        increasedDistance: 0.05, // Small escape bonus
-        brokeLineOfSight: 0.1, // Breaking vision bonus
-        stayedStationary: -0.01, // Small stuck penalty
-        successfullyHidden: 0.05, // Safety bonus
-        revisitedPosition: -0.005, // Tiny revisit penalty
-        caughtPenalty: -10.0, // Big penalty for being caught
-        boundaryCollision: -0.05, // Small boundary penalty
-        successfulJump: 0.05, // Jump bonus
-        failedJump: -0.02, // Small jump penalty
-        episodeSurvivalBonus: 15.0, // Big bonus for surviving full game
+        survivalPerSecond: 0.02,
+        detectedBySeeker: -0.5,
+        increasedDistance: 0.05,
+        brokeLineOfSight: 0.1,
+        stayedStationary: -0.01,
+        successfullyHidden: 0.05,
+        revisitedPosition: -0.005,
+        caughtPenalty: -10.0,
+        boundaryCollision: -0.05,
+        successfulJump: 0.05,
+        failedJump: -0.02,
+        episodeSurvivalBonus: 15.0,
       },
-      // Seeker rewards
       SEEKER: {
-        foundHider: 2.0, // Big reward for seeing hider
-        approachedTarget: 0.5, // Getting closer bonus
-        decreasedDistance: 0.2, // Distance reduction
-        investigatedSound: 0.1, // Sound investigation
-        successfulJump: 0.1, // Smart jump bonus
-        failedJump: -0.02, // Unnecessary jump penalty
-        exploredNewArea: 0.2, // Exploration bonus
-        rotationWhenSearching: 0.01, // Small scan bonus
-        movementBonus: 0.02, // Small movement reward
-        stationaryPenalty: -0.02, // Stuck penalty
-        timeoutPenalty: -15.0, // Big penalty for not finding anyone
-        boundaryCollision: -0.1, // Boundary penalty
-        episodeCatchBonus: 20.0, // Big bonus for winning
-        quickCatchBonus: 10.0, // Extra for fast catches
+        foundHider: 2.0,
+        approachedTarget: 0.5,
+        decreasedDistance: 0.2,
+        investigatedSound: 0.1,
+        successfulJump: 0.1,
+        failedJump: -0.02,
+        exploredNewArea: 0.2,
+        rotationWhenSearching: 0.01,
+        movementBonus: 0.02,
+        stationaryPenalty: -0.02,
+        timeoutPenalty: -15.0,
+        boundaryCollision: -0.1,
+        episodeCatchBonus: 20.0,
+        quickCatchBonus: 10.0,
       },
     },
   },

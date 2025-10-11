@@ -32,9 +32,10 @@ class NPCSystem {
     this.settings = {
       maxNPCs: 10,
       spawnDistance: {
-        min: 5,
-        max: 30,
+        min: 8,    // Increased from 5 - prevent spawning too close
+        max: 20,   // Reduced from 30 - keep NPCs closer together
       },
+      minNPCDistance: 5, // NEW: Minimum distance between NPCs
     };
 
     this.skins = {
@@ -198,7 +199,6 @@ class NPCSystem {
     const playerPos = GameState.player.position;
     const { min, max } = this.settings.spawnDistance;
 
-    // ✅ Increase attempts from 20 to 50
     for (let attempts = 0; attempts < 50; attempts++) {
       const distance = min + Math.random() * (max - min);
       const angle = Math.random() * Math.PI * 2;
@@ -207,25 +207,35 @@ class NPCSystem {
       const z = playerPos.z + Math.sin(angle) * distance;
       const y = this.findGroundLevel(x, z);
 
-      // ✅ Validate the found position
       if (y > 0) {
         const spawnPos = new THREE.Vector3(x, y, z);
 
-        // Double-check no collision at spawn point
+        // Check no collision at spawn point
         const collision = NPCPhysics.checkNPCCollision(spawnPos, this.scene);
         if (!collision.collides) {
-          console.log(`Valid spawn found at attempt ${attempts + 1}: y=${y}`);
-          return { x, y, z };
+          // ✅ NEW: Check distance to other NPCs
+          const tooCloseToOthers = this.npcs.some(npc => {
+            const dist = npc.position.distanceTo(spawnPos);
+            return dist < this.settings.minNPCDistance;
+          });
+
+          if (!tooCloseToOthers) {
+            console.log(`Valid spawn found at attempt ${attempts + 1}: y=${y}`);
+            return { x, y, z };
+          }
         }
       }
     }
 
-    // ✅ Better fallback: spawn above player with MORE clearance
+    // Fallback with better spacing
     console.warn("Could not find ground-level spawn, using aerial fallback");
+    const fallbackAngle = Math.random() * Math.PI * 2;
+    const fallbackDist = 15; // Fixed distance for fallback
+    
     return {
-      x: playerPos.x + (Math.random() * 10 - 5),
-      y: playerPos.y + 5, // Higher up to ensure no collision
-      z: playerPos.z + (Math.random() * 10 - 5),
+      x: playerPos.x + Math.cos(fallbackAngle) * fallbackDist,
+      y: playerPos.y + 5,
+      z: playerPos.z + Math.sin(fallbackAngle) * fallbackDist,
     };
   }
 
@@ -278,13 +288,12 @@ class NPCSystem {
     console.log("Starting NPC system (physics only, ML controls movement)");
   }
 
+
   update(deltaTime) {
     if (!this.active) return;
 
-    // Update game state (detection, win conditions)
     this.hideSeekManager.update(deltaTime);
 
-    // Apply physics to all NPCs
     for (const npc of this.npcs) {
       if (!npc.visible || !npc.parent) continue;
 
@@ -294,10 +303,20 @@ class NPCSystem {
         continue;
       }
 
-      // Apply physics (gravity, collisions, boundaries)
-      NPCPhysics.updateNPCPhysics(npc, this.scene, deltaTime);
+      // ✅ Add logging to debug
+      if (this.hideSeekManager.gameState === NPC.GAME_STATES.COUNTDOWN) {
+        if (Math.random() < 0.01) { // Log occasionally, not every frame
+          console.log(`${npc.userData.id} (${npc.role}): inPrep=${npc.inPreparationPhase}`);
+        }
+      }
 
-      // Publish movement for any listeners
+      if (npc.role === "seeker" && npc.inPreparationPhase) {
+        npc.velocity = { x: 0, y: 0, z: 0 };
+        npc.isMoving = false;
+        continue;
+      }
+
+      NPCPhysics.updateNPCPhysics(npc, this.scene, deltaTime);
       this.publishNPCMovement(npc);
     }
   }

@@ -397,26 +397,58 @@ export class TrainingOrchestrator {
 
     const ACTION_SELECTION_FREQUENCY = 15;
 
-    // Wait for seeking phase
+
     while (
       this.hideSeekManager.gameState !== NPC.GAME_STATES.SEEKING &&
       steps < 1000
     ) {
-      if (!options.visual) {
-        this.hideSeekManager.updateGameState();
-        await this.sleep(1);
+      const deltaTime = clock.getDelta();
+      
+      // Update game state (advances countdown)
+      this.hideSeekManager.updateGameState();
+      
+      // Give hiders actions during countdown
+      if (steps % ACTION_SELECTION_FREQUENCY === 0) {
+        npcs.forEach((npc) => {
+          if (npc.role === "hider" && npc.hideSeekState !== NPC.GAME_STATES.FOUND) {
+            const currentEnvState = this.getNPCState(npc);
+            const stateSequence = this.stateHistory.get(npc.userData.id);
+            const actionGroups = this.selectAction(npc, stateSequence);
+            
+            npc.currentActionGroups = actionGroups;
+            stateSequence.shift();
+            stateSequence.push(currentEnvState);
+            
+            // Execute hider action
+            this.movementController.executeActionGroups(npc, actionGroups, deltaTime);
+          }
+        });
       } else {
-        await this.sleep(100);
+        // Use previous actions for hiders
+        npcs.forEach((npc) => {
+          if (npc.role === "hider" && npc.currentActionGroups) {
+            this.movementController.executeActionGroups(npc, npc.currentActionGroups, deltaTime);
+          }
+        });
       }
+      
+      // Run NPC physics updates (hiders will move, seekers frozen)
+      npcs.forEach((npc) => {
+        if (npc.role === "hider") {
+          this.movementController.updatePhysics(npc, deltaTime);
+        }
+      });
+      
+      if (!options.visual) {
+        await this.sleep(16); // Still need some delay
+      } else {
+        await this.sleep(16);
+      }
+      
       steps++;
     }
 
-    if (this.hideSeekManager.gameState !== NPC.GAME_STATES.SEEKING) {
-      console.warn("Episode failed to start seeking phase.");
-      this.hideSeekManager.endGame("failed_start");
-      return null;
-    }
-
+    console.log(`Countdown complete after ${steps} steps, starting seeking phase...`);
     // Main episode loop
     while (!done && steps < this.config.TRAINING.maxStepsPerEpisode) {
       const deltaTime = clock.getDelta();
@@ -722,23 +754,17 @@ export class TrainingOrchestrator {
   calculateReward(npc, oldPos) {
     let reward = 0;
 
-    // Time penalty - unchanged
-    reward -= 0.005;
-
-    const perceptionData = this.visionSystem.getVisionData(
-      npc,
-      this.npcSystem.npcs
-    );
+    const perceptionData = this.visionSystem.getVisionData(npc, this.npcSystem.npcs);
     const visibleNPCs = perceptionData.visibleNPCs;
     const distanceMoved = npc.position.distanceTo(oldPos);
 
-    // Initialize state to avoid undefined errors
-    npc.consecutiveStationary = npc.consecutiveStationary || 0;
+    // Initialize state tracking
     npc.lastDistanceToHider = npc.lastDistanceToHider || null;
     npc.lastDistanceToSeeker = npc.lastDistanceToSeeker || null;
-    npc.blocksInteracted = npc.blocksInteracted || 0;
+    if (!npc.explorationCells) {
+      npc.explorationCells = new Set();
+    }
 
-    // Fetch all hiders and seekers
     const allHiders = this.npcSystem.npcs.filter((n) => n.role === "hider");
     const allSeekers = this.npcSystem.npcs.filter((n) => n.role === "seeker");
 
@@ -746,132 +772,109 @@ export class TrainingOrchestrator {
       // ========== SEEKER REWARDS ==========
       const visibleHiders = visibleNPCs.filter((n) => n.role === "hider");
 
-      // Spotting reward - reduced to prevent over-rewarding
-      reward += visibleHiders.length * 0.2; // Down from 0.3
-
       if (visibleHiders.length > 0) {
-        const nearest = visibleHiders.reduce(
-          (min, n) => (n.distance < min.distance ? n : min),
-          visibleHiders[0]
-        );
+        const nearest = visibleHiders[0];
+        
+        // Big reward for seeing hider
+        reward += 1.0;
 
-        // Distance closing - unchanged
+        // Reward for getting closer
         if (npc.lastDistanceToHider !== null) {
           const distanceDelta = npc.lastDistanceToHider - nearest.distance;
-          reward += Math.min(distanceDelta * 0.5, 1.0);
+          if (distanceDelta > 0) {
+            reward += 0.5; // Getting closer
+          } else {
+            reward -= 0.2; // Getting farther (bad)
+          }
         }
         npc.lastDistanceToHider = nearest.distance;
+        
       } else {
+        // Not seeing anyone - encourage exploration
         npc.lastDistanceToHider = null;
-        // Exploration - unchanged
-        if (distanceMoved > 0.5) {
-          reward += 0.03;
+        
+        // Reward visiting NEW cells only
+        const cellX = Math.floor(npc.position.x);
+        const cellZ = Math.floor(npc.position.z);
+        const cellKey = `${cellX},${cellZ}`;
+        
+        if (!npc.explorationCells.has(cellKey)) {
+          npc.explorationCells.add(cellKey);
+          reward += 0.1; // Small reward for new area
+          
+          // Prevent unbounded growth
+          if (npc.explorationCells.size > 100) {
+            const oldest = Array.from(npc.explorationCells)[0];
+            npc.explorationCells.delete(oldest);
+          }
         }
       }
 
-      // Stuck penalty - unchanged
-      if (distanceMoved < 0.01) {
-        npc.consecutiveStationary++;
-        if (npc.consecutiveStationary > 10) {
-          reward -= 0.05;
-        }
-      } else {
-        npc.consecutiveStationary = 0;
-      }
-
-      // Boundary penalty - unchanged
+      // Boundary collision penalty
       if (npc.boundaryCollision) {
-        reward -= 0.1;
+        reward -= 1.0; // Big penalty
       }
 
-      // Catch bonus - unchanged
+      // Catch bonus (applied once when catch happens)
       if (npc.justCaughtHider) {
-        reward += 8.0;
-        console.log(`[SEEKER CATCH] +8.0 reward for catching hider!`);
+        reward += 10.0;
         npc.justCaughtHider = false;
       }
 
-      // Team success - reduced and less frequent
-      const allHidersVisible = allHiders.every((h) =>
-        allSeekers.some((s) => this.visionSystem.hasLineOfSight(s, h))
-      );
-      if (allHidersVisible) {
-        reward += 0.5; // Down from 1.0
-      }
     } else if (npc.role === "hider") {
       // ========== HIDER REWARDS ==========
       const visibleSeekers = visibleNPCs.filter((n) => n.role === "seeker");
 
-      // Hiding reward - reduced to balance
+      // Check if hidden from ALL seekers
       const isHidden = allSeekers.every(
         (s) => !this.visionSystem.hasLineOfSight(s, npc)
       );
+      
       if (isHidden) {
-        reward += 0.3; // Down from 0.5
+        reward += 0.5; // Reward for being hidden
       }
 
       if (visibleSeekers.length > 0) {
-        const nearest = visibleSeekers.reduce(
-          (min, n) => (n.distance < min.distance ? n : min),
-          visibleSeekers[0]
-        );
-
-        // Danger penalty - unchanged
+        const nearest = visibleSeekers[0];
+        
+        // Penalty for being seen (danger)
         const threatLevel = Math.max(0, 1 - nearest.distance / 10);
-        reward -= threatLevel * 0.3;
+        reward -= threatLevel;
 
-        // Distance increase - unchanged
+        // Reward for increasing distance (escaping)
         if (npc.lastDistanceToSeeker !== null) {
           const distanceDelta = nearest.distance - npc.lastDistanceToSeeker;
-          reward += Math.min(distanceDelta * 0.5, 1.0);
+          if (distanceDelta > 0) {
+            reward += 0.3; // Getting away
+          } else {
+            reward -= 0.1; // Seeker getting closer (bad)
+          }
         }
         npc.lastDistanceToSeeker = nearest.distance;
+        
       } else {
         npc.lastDistanceToSeeker = null;
       }
 
-      // Stuck penalty - unchanged
-      if (distanceMoved < 0.01) {
-        npc.consecutiveStationary++;
-        if (npc.consecutiveStationary > 10) {
-          reward -= 0.05;
-        }
-      } else {
-        npc.consecutiveStationary = 0;
-      }
-
-      // Boundary penalty - unchanged
+      // Boundary collision penalty
       if (npc.boundaryCollision) {
-        reward -= 0.1;
+        reward -= 1.0;
       }
 
-      // Caught penalty - unchanged
-      if (
-        npc.hideSeekState === NPC.GAME_STATES.FOUND &&
-        !npc.caughtPenaltyApplied
-      ) {
-        reward -= 4.0;
+      // Caught penalty (applied once)
+      if (npc.hideSeekState === NPC.GAME_STATES.FOUND && !npc.caughtPenaltyApplied) {
+        reward -= 10.0;
         npc.caughtPenaltyApplied = true;
-        console.log(`[HIDER CAUGHT] -4.0 penalty for being caught`);
-      }
-
-      // Team hiding - reduced
-      const allHidden = allHiders.every((h) =>
-        allSeekers.every((s) => !this.visionSystem.hasLineOfSight(s, h))
-      );
-      if (allHidden) {
-        reward += 0.3; // Down from 0.5
       }
     }
 
-    // Voxel interaction - capped to prevent runaway
-    if (npc.blocksInteracted > 0) {
-      reward += Math.min(0.1 * npc.blocksInteracted, 1.0); // Cap at 1.0 per step
-      npc.blocksInteracted = 0;
+    // Small universal penalties
+    if (distanceMoved < 0.01) {
+      reward -= 0.01; // Tiny penalty for not moving
     }
 
-    // Cap total reward per step to prevent extremes
-    return Math.max(Math.min(reward, 2.0), -2.0);
+    // Clip reward to prevent explosion
+    return Math.max(Math.min(reward, 5.0), -5.0);
   }
 
   /**

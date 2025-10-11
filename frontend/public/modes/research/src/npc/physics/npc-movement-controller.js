@@ -121,6 +121,13 @@ export class NPCMovementController {
     const stats = this.movementStats.get(npc.userData.id);
     const currentTime = Date.now() / 1000;
     const results = [];
+    if (npc.role === "seeker" && npc.inPreparationPhase) {
+      return {
+        success: false,
+        results: [],
+        groups: groups,
+      };
+    }
 
     // Execute all selected actions simultaneously
 
@@ -229,28 +236,40 @@ export class NPCMovementController {
   //--------------------------------------------------------------//
 
   rotateLeft(npc) {
-    npc.yaw -= Math.PI / 8;
-    // Normalize to [-π, π]
+    // π/32 = 5.625 degrees - much more human-like
+    const ROTATION_STEP = Math.PI / 32;
+    
+    if (!npc.totalRotation) npc.totalRotation = 0;
+    npc.totalRotation -= ROTATION_STEP;
+    
+    npc.yaw -= ROTATION_STEP;
     npc.yaw = ((npc.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+    
     return { success: true, action: "rotate_left", yaw: npc.yaw };
   }
 
   rotateRight(npc) {
-    npc.yaw += Math.PI / 8;
-    // Normalize to [-π, π]
+    const ROTATION_STEP = Math.PI / 32;
+    
+    if (!npc.totalRotation) npc.totalRotation = 0;
+    npc.totalRotation += ROTATION_STEP;
+    
+    npc.yaw += ROTATION_STEP;
     npc.yaw = ((npc.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+    
     return { success: true, action: "rotate_right", yaw: npc.yaw };
   }
 
   lookUp(npc) {
     if (!npc.pitch) npc.pitch = 0;
-    npc.pitch = Math.min(Math.PI / 4, npc.pitch + Math.PI / 16);
+    // Also reduce look speed for consistency
+    npc.pitch = Math.min(Math.PI / 4, npc.pitch + Math.PI / 32);
     return { success: true, action: "look_up", pitch: npc.pitch };
   }
 
   lookDown(npc) {
     if (!npc.pitch) npc.pitch = 0;
-    npc.pitch = Math.max(-Math.PI / 4, npc.pitch - Math.PI / 16);
+    npc.pitch = Math.max(-Math.PI / 4, npc.pitch - Math.PI / 32);
     return { success: true, action: "look_down", pitch: npc.pitch };
   }
 

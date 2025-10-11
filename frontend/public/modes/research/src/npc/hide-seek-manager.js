@@ -67,6 +67,7 @@ export class HideSeekManager {
   assignRoles() {
     const seekerCount = NPC.HIDE_AND_SEEK.seekerCount;
     const hiderCount = NPC.HIDE_AND_SEEK.hiderCount;
+    
     this.seekers = this.npcs.slice(0, seekerCount);
     this.seekers.forEach((seeker) => {
       this.initializeNPC(seeker, "seeker", NPC.GAME_STATES.WAITING);
@@ -78,25 +79,51 @@ export class HideSeekManager {
     this.hiders.forEach((hider) => {
       this.initializeNPC(hider, "hider", NPC.GAME_STATES.HIDDEN);
     });
+    
+    // ✅ NEW: Verify spawn distances between seekers and hiders
+    this.verifySpawnDistances();
   }
+
+  verifySpawnDistances() {
+    const MIN_SEEKER_HIDER_DISTANCE = 10; // blocks
+    
+    this.seekers.forEach(seeker => {
+      this.hiders.forEach(hider => {
+        const distance = seeker.position.distanceTo(hider.position);
+        
+        if (distance < MIN_SEEKER_HIDER_DISTANCE) {
+          console.warn(`⚠️ Seeker ${seeker.userData.id} spawned too close to hider ${hider.userData.id} (${distance.toFixed(1)}m)`);
+          
+          // Move seeker away (simple solution)
+          const dx = hider.position.x - seeker.position.x;
+          const dz = hider.position.z - seeker.position.z;
+          const angle = Math.atan2(dz, dx);
+          
+          // Push seeker 15 blocks away in opposite direction
+          seeker.position.x = hider.position.x - Math.cos(angle) * 15;
+          seeker.position.z = hider.position.z - Math.sin(angle) * 15;
+          
+          console.log(`✅ Moved seeker to safe distance`);
+        }
+      });
+    });
+  }
+
 
   initializeNPC(npc, role, state) {
     npc.role = role;
     npc.hideSeekState = state;
     npc.jumpCooldown = 0;
-
-    // Perception data (for ML)
     npc.lastSeenHider = null;
     npc.isDetected = false;
     npc.detectionTimer = 0;
-
-    // Basic tracking
     npc.lastPosition = npc.position.clone();
-
-    // Clear any AI control flags
     npc.mlControlled = false;
+    
 
-    console.log(`Initialized ${npc.userData?.id} as ${role}`);
+    npc.inPreparationPhase = (role === "seeker");
+    
+    console.log(`Initialized ${npc.userData?.id} as ${role}, prep phase: ${npc.inPreparationPhase}`);
   }
 
   endGame(reason) {
@@ -150,12 +177,29 @@ export class HideSeekManager {
 
     switch (this.gameState) {
       case NPC.GAME_STATES.COUNTDOWN:
-        if (now - this.countdownStartTime >= this.countdownTime) {
+        const timeInCountdown = now - this.countdownStartTime;
+        
+        if (timeInCountdown < this.countdownTime) {
+          // ✅ Explicitly control who's frozen
+          this.seekers.forEach(seeker => {
+            seeker.inPreparationPhase = true;
+            seeker.velocity = { x: 0, y: 0, z: 0 };
+            seeker.isMoving = false;
+          });
+          
+          // ✅ Explicitly allow hiders to move
+          this.hiders.forEach(hider => {
+            hider.inPreparationPhase = false;
+          });
+          
+        } else {
+          // Countdown over
           this.gameState = NPC.GAME_STATES.SEEKING;
           this.gameStartTime = now;
 
           this.seekers.forEach((seeker) => {
             seeker.hideSeekState = NPC.GAME_STATES.SEEKING;
+            seeker.inPreparationPhase = false;
           });
 
           console.log("Hide and seek game started - seeking phase!");
