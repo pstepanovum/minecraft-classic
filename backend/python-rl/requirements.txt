@@ -1,0 +1,17 @@
+# Core RL Framework
+ray[rllib]==2.8.0
+gymnasium==0.28.1
+
+# Deep Learning
+torch==2.1.0
+
+# WebSocket Communication
+websockets==12.0
+
+# Utilities
+numpy==1.24.3
+pyyaml==6.0.1
+tensorboard==2.15.1
+
+# Optional
+pandas==2.1.0

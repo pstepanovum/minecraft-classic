@@ -24,18 +24,16 @@ class NPCSystem {
     this.hideSeekManager = new HideSeekManager(scene);
     this.lastUpdate = Date.now();
     this.movementController = new NPCMovementController(scene, chunkManager);
-
-    // Role counters for naming
     this.seekerCount = 0;
     this.hiderCount = 0;
 
     this.settings = {
       maxNPCs: 10,
       spawnDistance: {
-        min: 8,    // Increased from 5 - prevent spawning too close
-        max: 20,   // Reduced from 30 - keep NPCs closer together
+        min: 8,
+        max: 20,
       },
-      minNPCDistance: 5, // NEW: Minimum distance between NPCs
+      minNPCDistance: 5,
     };
 
     this.skins = {
@@ -43,18 +41,11 @@ class NPCSystem {
       hider: "../../../assets/images/skins/chicken.png",
       default: "../../../assets/images/skins/1.png",
     };
-
-    console.log("NPC System initialized (ML training mode - physics only)");
   }
 
   initialize() {
-    console.log("Initializing NPC system...");
     return this;
   }
-
-  //--------------------------------------------------------------//
-  //                      NPC Spawning
-  //--------------------------------------------------------------//
 
   generateNPCs(count = null) {
     if (this.gameMode === "hide_and_seek") {
@@ -62,20 +53,12 @@ class NPCSystem {
         NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
 
       if (this.npcs.length > 0) {
-        console.warn(
-          `Hide and Seek game already has ${this.npcs.length} NPCs. Remove them first.`
-        );
         return this.npcs;
       }
-
-      // Reset role counters
       this.seekerCount = 0;
       this.hiderCount = 0;
 
       count = totalNPCs;
-      console.log(
-        `Spawning ${NPC.HIDE_AND_SEEK.seekerCount} seeker(s) and ${NPC.HIDE_AND_SEEK.hiderCount} hider(s)`
-      );
     } else if (count === null) {
       count = 3;
     }
@@ -86,11 +69,8 @@ class NPCSystem {
     );
 
     if (!GameState.player) {
-      console.warn("Player not loaded yet, cannot generate NPCs");
       return this.npcs;
     }
-
-    console.log(`Generating ${spawnCount} NPCs...`);
 
     for (let i = 0; i < spawnCount; i++) {
       this.spawnNPC(i);
@@ -112,7 +92,6 @@ class NPCSystem {
   spawnNPC(index = 0, position = null) {
     const spawnPos = position || this.findValidSpawnPosition();
     if (!spawnPos) {
-      console.warn("Could not find valid spawn position");
       return null;
     }
 
@@ -123,18 +102,15 @@ class NPCSystem {
       const seekerCount = NPC.HIDE_AND_SEEK.seekerCount;
 
       if (index < seekerCount) {
-        // This is a seeker
         this.seekerCount++;
         id = `seeker-${this.seekerCount}`;
         skin = this.skins.seeker;
       } else {
-        // This is a hider
         this.hiderCount++;
         id = `hider-${this.hiderCount}`;
         skin = this.skins.hider;
       }
     } else {
-      // Generic mode
       id = `npc-${++this.npcCount}`;
       skin = this.skins.default;
     }
@@ -154,7 +130,6 @@ class NPCSystem {
 
     this.initializeNPC(npc);
     this.npcs.push(npc);
-    console.log(`Spawned NPC ${id} at position:`, spawnPos);
 
     return npc;
   }
@@ -175,8 +150,6 @@ class NPCSystem {
   }
 
   removeAllNPCs() {
-    console.log(`Removing ${this.npcs.length} NPCs...`);
-
     if (this.hideSeekManager.gameRunning) {
       this.hideSeekManager.endGame("manual_stop");
     }
@@ -209,29 +182,23 @@ class NPCSystem {
 
       if (y > 0) {
         const spawnPos = new THREE.Vector3(x, y, z);
-
-        // Check no collision at spawn point
         const collision = NPCPhysics.checkNPCCollision(spawnPos, this.scene);
         if (!collision.collides) {
-          // ✅ NEW: Check distance to other NPCs
-          const tooCloseToOthers = this.npcs.some(npc => {
+          const tooCloseToOthers = this.npcs.some((npc) => {
             const dist = npc.position.distanceTo(spawnPos);
             return dist < this.settings.minNPCDistance;
           });
 
           if (!tooCloseToOthers) {
-            console.log(`Valid spawn found at attempt ${attempts + 1}: y=${y}`);
             return { x, y, z };
           }
         }
       }
     }
 
-    // Fallback with better spacing
-    console.warn("Could not find ground-level spawn, using aerial fallback");
     const fallbackAngle = Math.random() * Math.PI * 2;
-    const fallbackDist = 15; // Fixed distance for fallback
-    
+    const fallbackDist = 15;
+
     return {
       x: playerPos.x + Math.cos(fallbackAngle) * fallbackDist,
       y: playerPos.y + 5,
@@ -244,28 +211,24 @@ class NPCSystem {
     const testPosition = new THREE.Vector3(x, startY, z);
 
     for (let y = startY; y > 0; y--) {
-      // Check current position (where NPC feet will be)
       testPosition.y = y;
       const currentCollision = NPCPhysics.checkNPCCollision(
         testPosition,
         this.scene
       );
 
-      // Check below (must be solid ground)
       testPosition.y = y - 1;
       const belowCollision = NPCPhysics.checkNPCCollision(
         testPosition,
         this.scene
       );
 
-      // ✅ NEW: Check head clearance (NPCs are ~2 blocks tall)
       testPosition.y = y + 1;
       const aboveCollision = NPCPhysics.checkNPCCollision(
         testPosition,
         this.scene
       );
 
-      // Valid spawn: air at feet, air at head, solid below
       if (
         !currentCollision.collides &&
         !aboveCollision.collides &&
@@ -278,16 +241,10 @@ class NPCSystem {
     return -1;
   }
 
-  //--------------------------------------------------------------//
-  //                   Update Loop (Physics Only)
-  //--------------------------------------------------------------//
-
   startNPCSystem() {
     if (this.active) return;
     this.active = true;
-    console.log("Starting NPC system (physics only, ML controls movement)");
   }
-
 
   update(deltaTime) {
     if (!this.active) return;
@@ -301,13 +258,6 @@ class NPCSystem {
         npc.isMoving = false;
         npc.velocity = { x: 0, y: 0, z: 0 };
         continue;
-      }
-
-      // ✅ Add logging to debug
-      if (this.hideSeekManager.gameState === NPC.GAME_STATES.COUNTDOWN) {
-        if (Math.random() < 0.01) { // Log occasionally, not every frame
-          console.log(`${npc.userData.id} (${npc.role}): inPrep=${npc.inPreparationPhase}`);
-        }
       }
 
       if (npc.role === "seeker" && npc.inPreparationPhase) {
@@ -328,7 +278,6 @@ class NPCSystem {
     if (newPos) {
       npc.position.set(newPos.x, newPos.y, newPos.z);
       NPCPhysics.resetNPCPhysics(npc);
-      console.log(`Respawned stuck NPC ${npc.userData?.id}`);
     }
   }
 
@@ -342,20 +291,14 @@ class NPCSystem {
     });
   }
 
-  //--------------------------------------------------------------//
-  //                 Hide and Seek Interface
-  //--------------------------------------------------------------//
-
   startHideAndSeekGame() {
     const requiredNPCs =
       NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
 
     if (this.npcs.length < requiredNPCs) {
-      console.warn(`Need at least ${requiredNPCs} NPCs to start Hide and Seek`);
       return false;
     }
 
-    console.log("Starting Hide and Seek game...");
     return this.hideSeekManager.initializeGame(this.npcs);
   }
 
@@ -368,7 +311,6 @@ class NPCSystem {
   }
 
   setGameMode(mode) {
-    console.log(`Switching game mode to: ${mode}`);
     this.gameMode = mode;
     this.removeAllNPCs();
   }

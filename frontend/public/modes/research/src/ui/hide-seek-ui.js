@@ -5,7 +5,7 @@
 export class HideSeekUI {
   constructor(npcSystem, callbacks = {}) {
     this.npcSystem = npcSystem;
-    this.callbacks = callbacks; // Store the callbacks
+    this.callbacks = callbacks;
     this.updateInterval = null;
     this.isVisible = false;
 

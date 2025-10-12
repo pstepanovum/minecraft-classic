@@ -1,0 +1,82 @@
+# Environment Configuration
+environment:
+  observation_size: 91  # CHANGED: from 143 to 91
+
+  # CHANGED: Now using continuous action space
+  action_space_type: "continuous"
+  
+  # Continuous action space: Box(7)
+  # [forward/back, strafe, rotation, look, jump, place_block, remove_block]
+  continuous_actions:
+    movement_forward: [-1.0, 1.0]    # forward/backward
+    movement_strafe: [-1.0, 1.0]     # strafe left/right
+    rotation: [-1.0, 1.0]            # rotate left/right
+    look: [-1.0, 1.0]                # look up/down
+    jump: [0.0, 1.0]                 # jump (threshold at 0.5)
+    place_block: [0.0, 1.0]          # place block (threshold at 0.5)
+    remove_block: [0.0, 1.0]         # remove block (threshold at 0.5)
+
+  # Episode settings
+  max_steps: 1000
+
+  # Reward configuration
+  rewards:
+    # Seeker rewards
+    seeker_catch: 10.0
+    seeker_explore_new: 0.1
+
+    # Hider rewards
+    hider_caught: -10.0
+    hider_survive: 15.0
+
+    # Universal penalties
+    boundary_collision: -1.0
+    stationary: -0.01
+
+# PPO Hyperparameters (Ray RLlib)
+ppo:
+  # Learning rates (different for each role)
+  lr_seeker: 0.0003
+  lr_hider: 0.00025
+
+  # Discount factor
+  gamma: 0.99
+
+  # GAE lambda
+  lambda: 0.95
+
+  # Clipping
+  clip_param: 0.2
+
+  # Loss coefficients
+  vf_loss_coeff: 0.5
+  entropy_coeff: 0.01
+
+  # Batch sizes
+  train_batch_size: 4000
+  minibatch_size: 128
+  num_epochs: 10
+
+  # Neural network
+  model:
+    fcnet_hiddens: [256, 256, 128]
+    fcnet_activation: "relu"
+
+  # No parallel workers (single browser instance)
+  num_workers: 0
+  num_envs_per_worker: 1
+
+  # Checkpointing
+  checkpoint_freq: 50
+  checkpoint_dir: "./checkpoints"
+
+# WebSocket Configuration
+websocket:
+  host: "localhost"
+  port: 8765
+
+# Training Configuration
+training:
+  total_episodes: 1000
+  eval_frequency: 10
+  log_frequency: 1

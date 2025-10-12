@@ -19,7 +19,6 @@ import BoundaryIntegration from "../../../src/core/game-state-boundary-integrati
 import ResearchBoundaryIntegration from "../src/world/boundary-integration.js";
 import NPCSystem from "../src/npc/npc-system.js";
 import HideSeekUI from "../src/ui/hide-seek-ui.js";
-import { initializeTraining, loadTrainedModel } from "./ml/start-training.js";
 
 //--------------------------------------------------------------//
 //                       Configuration
@@ -267,86 +266,65 @@ function checkAllEntitiesBoundaries() {
 //--------------------------------------------------------------//
 //                 ML Training and Loading Logic
 //--------------------------------------------------------------//
-/**
- * Initializes the ML system and starts a new training session from scratch.
- * This function is triggered by the UI panel.
- */
+
 async function startNewTraining() {
   if (!npcSystem || !npcSystem.hideSeekManager) {
     console.error("Cannot start training: NPCSystem not ready.");
     return;
   }
-  console.log("Starting new ML training session...");
-  alert(
-    "Starting new training session. The UI may become less responsive. Check the console for progress."
-  );
+
+  console.log("Starting PPO training with Python backend...");
 
   try {
-    npcSystem.setGameMode("hide_and_seek");
-    const trainer = await initializeTraining(
+    // Dynamically import the PPO bridge
+    const { PPOTrainingBridge } = await import("./ml/ppo-training-bridge.js");
+
+    // Create PPO bridge
+    const ppoBridge = new PPOTrainingBridge(
       npcSystem,
       npcSystem.hideSeekManager,
       GameState.chunkManager
     );
 
-    await trainer.train(2000, { visual: true });
-    console.log("✅ Training complete! Models have been saved.");
+    // Connect to Python backend
+    console.log("Connecting to Python...");
+    const connected = await ppoBridge.connect();
+
+    if (!connected) {
+      alert(
+        "Failed to connect to Python backend. Make sure 'python main.py' is running!"
+      );
+      return;
+    }
+
+    // Store globally so we can stop it
+    window.activePPOBridge = ppoBridge;
+
+    alert("✅ Connected to Python! Starting training...");
+    console.log("✅ Connected to Python PPO trainer - starting training loop");
+
+    // Set game mode
+    npcSystem.setGameMode("hide_and_seek");
+
+    await ppoBridge.startTraining(10); // 10 episodes
+
+    console.log("✅ Training complete!");
     alert("Training session finished!");
-  } catch (err) {
-    console.error("❌ A fatal error occurred during training:", err);
-    alert("A fatal error occurred during training. See console for details.");
-  }
-}
-
-/**
- * Initializes the ML system and loads a pre-trained model for observation.
- * This function is triggered by the UI panel.
- * @param {number} episode The episode number to load.
- */
-async function loadExistingModel(episode, seekerFiles, hiderFiles) {
-  if (!npcSystem || !npcSystem.hideSeekManager) {
-    console.error("Cannot load model: NPCSystem not ready.");
-    return;
-  }
-  console.log(`Loading pre-trained model from episode ${episode}...`);
-
-  try {
-    npcSystem.setGameMode("hide_and_seek");
-    const trainer = await initializeTraining(
-      npcSystem,
-      npcSystem.hideSeekManager,
-      GameState.chunkManager
-    );
-
-    await loadTrainedModel(trainer, episode, seekerFiles, hiderFiles);
-    console.log(
-      "✅ Model loaded successfully! Starting continuous demonstration."
-    );
-
-    // Store the trainer globally so we can stop it later
-    window.activeTrainer = trainer;
-    window.isRunningDemo = true;
-
-    // Run episodes continuously in a loop
-    const runContinuousDemo = async () => {
-      while (window.isRunningDemo) {
-        console.log("Starting new demonstration episode...");
-        await trainer.runEpisode({ visual: true });
-
-        // Small delay between episodes (optional, adjust as needed)
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-      console.log("Demonstration stopped.");
-    };
-
-    runContinuousDemo();
   } catch (error) {
-    console.error(`❌ Failed to load model from episode ${episode}.`, error);
-    alert(
-      `Could not load the model for episode ${episode}. Please check the console for errors.`
-    );
+    console.error("❌ Training error:", error);
+    alert(`Training failed: ${error.message}`);
   }
 }
+
+// Add a stop function
+window.stopPPOTraining = function () {
+  if (window.activePPOBridge) {
+    window.activePPOBridge.stopTraining();
+    console.log("⚠️ Training stopped by user");
+  } else {
+    console.log("No active training session");
+  }
+};
 
 function startGameIfReady() {
   if (GameState.isGameReady()) {
@@ -464,7 +442,6 @@ function initializeHideSeekSystem() {
   // Define the callbacks and pass them to the UI
   const mlCallbacks = {
     onStartTraining: startNewTraining,
-    onLoadModel: loadExistingModel,
   };
 
   hideSeekUI = new HideSeekUI(npcSystem, mlCallbacks);

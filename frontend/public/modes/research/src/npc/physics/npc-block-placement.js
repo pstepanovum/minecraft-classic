@@ -9,7 +9,6 @@ export class NPCBlockPlacement {
   constructor() {
     this.maxReachDistance = NPC.BLOCK_PLACEMENT.maxReachDistance;
     this.blockTypes = NPC.BLOCK_PLACEMENT.availableBlockTypes;
-    console.log("NPCBlockPlacement initialized (ML-controlled)");
   }
 
   initializeNPC(npc) {
@@ -17,10 +16,6 @@ export class NPCBlockPlacement {
       lastPlacementTime: 0,
     };
   }
-
-  //--------------------------------------------------------------//
-  //                  Triggered Actions Only
-  //--------------------------------------------------------------//
 
   placeBlock(npc, target) {
     if (!target || !target.blockType) return false;
@@ -33,7 +28,6 @@ export class NPCBlockPlacement {
       const currentBlock = GameState.getBlockType(x, y, z);
 
       if (currentBlock === 0) {
-        // Place block (no inventory check - unlimited)
         GameState.chunkManager?.updateBlock(x, y, z, target.blockType);
 
         if (GameState.isOnline && GameState.socket?.connected) {
@@ -46,20 +40,11 @@ export class NPCBlockPlacement {
         npc.blockPlacement.lastPlacementTime = Date.now();
         return true;
       }
-    } catch (e) {
-      console.warn(`Block placement failed: ${e.message}`);
-    }
+    } catch (e) {}
 
     return false;
   }
 
-  //--------------------------------------------------------------//
-  //              Perception Helpers (for ML state)
-  //--------------------------------------------------------------//
-
-  /**
-   * Find all valid placement positions (for ML action space)
-   */
   findValidPositions(npc, radius = 5) {
     const positions = [];
     const npcPos = {
@@ -71,9 +56,8 @@ export class NPCBlockPlacement {
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -2; dy <= 3; dy++) {
         for (let dz = -radius; dz <= radius; dz++) {
-          // ✅ Skip positions too close to NPC
           if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && Math.abs(dz) <= 1) {
-            continue; // Don't place blocks in 3x3x3 area around NPC
+            continue;
           }
 
           const x = npcPos.x + dx;
@@ -85,7 +69,6 @@ export class NPCBlockPlacement {
             if (blockType === 0 && this.hasAdjacentBlock(x, y, z)) {
               const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
               if (distance <= this.maxReachDistance && distance > 1.5) {
-                // ✅ Minimum distance
                 positions.push({ x, y, z });
               }
             }
@@ -99,9 +82,6 @@ export class NPCBlockPlacement {
     return positions;
   }
 
-  /**
-   * Check if position has at least one adjacent solid block
-   */
   hasAdjacentBlock(x, y, z) {
     const adjacent = [
       { x: x + 1, y, z },
@@ -125,9 +105,6 @@ export class NPCBlockPlacement {
     return false;
   }
 
-  /**
-   * Check if position is within reach and view
-   */
   isPositionInReachAndView(npc, pos) {
     const dx = pos.x - npc.position.x;
     const dy = pos.y - npc.position.y;
@@ -136,7 +113,6 @@ export class NPCBlockPlacement {
 
     if (distance > this.maxReachDistance) return false;
 
-    // Check if roughly facing the position (within ~60° cone)
     const targetDir = new THREE.Vector3(dx, 0, dz).normalize();
     const npcDir = new THREE.Vector3(
       -Math.sin(npc.yaw),

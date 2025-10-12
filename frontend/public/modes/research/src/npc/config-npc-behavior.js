@@ -33,8 +33,8 @@ export const NPC = {
   HIDE_AND_SEEK: {
     seekerCount: 1,
     hiderCount: 2,
-    gameTimeLimit: 45000,         // 45 seconds - shorter for faster episodes
-    countdownTime: 5000,          // 5 seconds prep time - enough to hide
+    gameTimeLimit: 45000,         // 45 seconds
+    countdownTime: 5000,          // 5 seconds prep time (seeker can't move)
 
     SEEKER: {
       detectionTime: 1000,        // 1 second to catch - more forgiving
@@ -67,71 +67,7 @@ export const NPC = {
     enabled: true,
 
     MODEL: {
-      hiddenLayers: [128, 64, 32],
-      learningRate: 0.001,        // Increased from 0.0005 - faster initial learning
-      gamma: 0.95,                // Reduced from 0.99 - focus on immediate rewards
-      epsilon: 1.0,
-      epsilonDecay: 0.995,        // Faster decay from 0.999 - exploit sooner
-      epsilonMin: 0.1,            // Higher min from 0.05 - maintain some exploration
-      stateSize: 139,
-      actionSize: 14,
-      batchSize: 64,              // Increased from 32 - more stable updates
-      memorySize: 20000,          // Increased from 10000 - more diverse experiences
-
-      ACTION_GROUPS: {
-        movement: 3,
-        jump: 2,
-        rotation: 3,
-        look: 3,
-        block: 3,
-      },
-
-      actionDistribution: 216,
-
-      rewardClipMin: -2.0,        // Allow larger penalties
-      rewardClipMax: 2.0,         // Allow larger rewards
-    },
-
-    TRAINING: {
-      episodes: 500,              // Realistic goal for class project
-      maxStepsPerEpisode: 3000, // 3000 steps per episode
-      updateFrequency: 4,         // Train more often (every 4 steps vs 15)
-      targetUpdateFrequency: 500, // More frequent updates (from 1500)
-      saveFrequency: 25,          // Save every 25 episodes
-      validationFrequency: 10,
-    },
-
-    REWARDS: {
-      HIDER: {
-        survivalPerSecond: 0.02,
-        detectedBySeeker: -0.5,
-        increasedDistance: 0.05,
-        brokeLineOfSight: 0.1,
-        stayedStationary: -0.01,
-        successfullyHidden: 0.05,
-        revisitedPosition: -0.005,
-        caughtPenalty: -10.0,
-        boundaryCollision: -0.05,
-        successfulJump: 0.05,
-        failedJump: -0.02,
-        episodeSurvivalBonus: 15.0,
-      },
-      SEEKER: {
-        foundHider: 2.0,
-        approachedTarget: 0.5,
-        decreasedDistance: 0.2,
-        investigatedSound: 0.1,
-        successfulJump: 0.1,
-        failedJump: -0.02,
-        exploredNewArea: 0.2,
-        rotationWhenSearching: 0.01,
-        movementBonus: 0.02,
-        stationaryPenalty: -0.02,
-        timeoutPenalty: -15.0,
-        boundaryCollision: -0.1,
-        episodeCatchBonus: 20.0,
-        quickCatchBonus: 10.0,
-      },
+      stateSize: 91,
     },
   },
 };

@@ -8,7 +8,6 @@ import { NPC } from "../config-npc-behavior.js";
 export class NPCBlockRemoval {
   constructor() {
     this.maxReachDistance = NPC.BLOCK_REMOVAL.maxReachDistance;
-    console.log("NPCBlockRemoval initialized (ML-controlled)");
   }
 
   initializeNPC(npc) {
@@ -17,14 +16,6 @@ export class NPCBlockRemoval {
     };
   }
 
-  //--------------------------------------------------------------//
-  //                  Triggered Actions
-  //--------------------------------------------------------------//
-
-  /**
-   * Remove block at target position
-   * Called by NPCMovementController.executeAction(npc, 11)
-   */
   removeBlock(npc, target) {
     if (!target) return false;
 
@@ -48,20 +39,11 @@ export class NPCBlockRemoval {
         npc.blockInteraction.lastRemovalTime = Date.now();
         return true;
       }
-    } catch (e) {
-      console.warn(`Block removal failed: ${e.message}`);
-    }
+    } catch (e) {}
 
     return false;
   }
 
-  //--------------------------------------------------------------//
-  //              Perception Helpers (for ML state)
-  //--------------------------------------------------------------//
-
-  /**
-   * Find all blocks within radius (for ML observation)
-   */
   findBlocksInRadius(npc, radius = 5) {
     const blocks = [];
     const npcPos = {
@@ -99,9 +81,6 @@ export class NPCBlockRemoval {
     return blocks;
   }
 
-  /**
-   * Check if block is within reach and view
-   */
   isBlockInReachAndView(npc, blockPos) {
     const dx = blockPos.x - npc.position.x;
     const dy = blockPos.y - npc.position.y;
@@ -109,8 +88,6 @@ export class NPCBlockRemoval {
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (distance > this.maxReachDistance) return false;
-
-    // Check if roughly facing the block (within 90° cone)
     const targetDir = new THREE.Vector3(dx, 0, dz).normalize();
     const npcDir = new THREE.Vector3(
       -Math.sin(npc.yaw),
@@ -118,7 +95,7 @@ export class NPCBlockRemoval {
       -Math.cos(npc.yaw)
     ).normalize();
 
-    return targetDir.dot(npcDir) > 0.5; // ~60° cone
+    return targetDir.dot(npcDir) > 0.5;
   }
 }
 

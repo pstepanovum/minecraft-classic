@@ -1,5 +1,5 @@
 // ==============================================================
-// FILE: frontend/public/modes/research/src/core/boundary-integration.js
+// FILE: frontend/public/modes/research/src/world/boundary-integration.js
 // ==============================================================
 
 import * as GameState from "../../../../src/core/game-state.js";
