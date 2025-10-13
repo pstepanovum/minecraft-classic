@@ -1,5 +1,6 @@
 """
 FILE: backend/python-rl/minecraft_env.py
+DESCRIPTION: Multi-agent Gymnasium environment for Minecraft hide and seek.
 """
 
 import gymnasium as gym

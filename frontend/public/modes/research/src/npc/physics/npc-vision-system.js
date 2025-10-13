@@ -6,40 +6,44 @@ import { NPC } from "../../npc/config-npc-behavior.js";
 
 export class NPCVisionSystem {
   constructor(config = {}) {
-    this.visionRange = NPC.VISION.visionRange;
-    this.visionAngle = NPC.VISION.visionAngle;
-    this.rayCount = NPC.VISION.rayCount;
-    this.rayPrecisionAngle = NPC.VISION.rayPrecisionAngle;
+    this.visionRange = config.visionRange || NPC.VISION.visionRange;
+    this.visionAngle = config.visionAngle || NPC.VISION.visionAngle;
+    this.rayCount = config.rayCount || NPC.VISION.rayCount;
+    this.rayAngleTolerance =
+      config.rayAngleTolerance || NPC.VISION.rayAngleTolerance || 0.996; // cos(5°)
+    this.verticalFOV = config.verticalFOV || this.visionAngle * 0.75;
 
-    this.debug = NPC.VISION.debug;
+    this.debug = config.debug ?? NPC.VISION.debug ?? false;
     this.chunkManager = null;
 
     this.debugLines = new Map();
-
-    this.warningShown = {
-      noChunkManager: false,
-    };
+    this.warningShown = { noChunkManager: false };
   }
 
   setChunkManager(chunkManager) {
     this.chunkManager = chunkManager;
   }
 
+  // ============================================================
+  // MAIN VISION API
+  // ============================================================
+
+  /**
+   * Get complete vision data for an observer NPC
+   * Returns visible NPCs and raycast data for observations
+   */
   getVisionData(observer, allNPCs) {
     const visibleNPCs = [];
 
     allNPCs.forEach((target) => {
       if (target === observer || target.role === observer.role) return;
-      
-      // Skip NPCs that are caught/removed
-      if (target.hideSeekState === NPC.GAME_STATES.FOUND || !target.visible) return;
+      if (target.hideSeekState === NPC.GAME_STATES.FOUND || !target.visible)
+        return;
 
       const distance = observer.position.distanceTo(target.position);
 
       if (distance < this.visionRange) {
-        // ✅ STRICT FOV check
         if (this.isInFieldOfView(observer, target)) {
-          // ✅ STRICT line-of-sight check
           if (this.hasLineOfSight(observer, target)) {
             const direction = this.getDirectionVector(observer, target);
 
@@ -67,34 +71,69 @@ export class NPCVisionSystem {
     };
   }
 
-  // ✅ FIXED: Much stricter FOV check
+  /**
+   * ADDED: Efficiently check if target is visible to ANY observer
+   * Used for hider rewards (am I seen by any seeker?)
+   */
+  isVisibleToAny(target, observers) {
+    for (const observer of observers) {
+      if (observer === target || observer.role === target.role) continue;
+      if (observer.hideSeekState === NPC.GAME_STATES.FOUND || !observer.visible)
+        continue;
+
+      const distance = observer.position.distanceTo(target.position);
+
+      if (distance < this.visionRange) {
+        if (this.isInFieldOfView(observer, target)) {
+          if (this.hasLineOfSight(observer, target)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // ============================================================
+  // FIELD OF VIEW CHECKS
+  // ============================================================
+
+  /**
+   * Strict FOV check - both horizontal and vertical
+   */
   isInFieldOfView(observer, target) {
     const dx = target.position.x - observer.position.x;
     const dz = target.position.z - observer.position.z;
-    const dy = (target.position.y + 0.85) - (observer.position.y + 1.6);
+    const dy = target.position.y + 0.85 - (observer.position.y + 1.6);
 
-    // Calculate angle to target (horizontal plane)
+    // Horizontal FOV check
     const angleToTarget = Math.atan2(dx, -dz);
     const angleDiff = angleToTarget - observer.yaw;
-    
-    // Normalize angle difference to [-π, π]
+
     const normalizedAngleDiff = Math.atan2(
       Math.sin(angleDiff),
       Math.cos(angleDiff)
     );
 
-    // ✅ Use STRICT angle (exactly as configured, no extra tolerance)
-    const horizontalInFOV = Math.abs(normalizedAngleDiff) <= this.visionAngle / 2;
-    
-    // ✅ Add vertical FOV check (prevent seeing through floors/ceilings)
+    const horizontalInFOV =
+      Math.abs(normalizedAngleDiff) <= this.visionAngle / 2;
+
+    // Vertical FOV check (prevent seeing through floors/ceilings)
     const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
     const verticalAngle = Math.atan2(dy, horizontalDistance);
-    const verticalFOV = this.visionAngle * 0.75; // Slightly narrower vertical FOV
-    const verticalInFOV = Math.abs(verticalAngle) <= verticalFOV / 2;
+    const verticalInFOV = Math.abs(verticalAngle) <= this.verticalFOV / 2;
 
     return horizontalInFOV && verticalInFOV;
   }
 
+  // ============================================================
+  // LINE OF SIGHT CHECKS
+  // ============================================================
+
+  /**
+   * Check if observer has clear line of sight to target
+   */
   hasLineOfSight(observer, target) {
     if (!this.chunkManager) {
       if (!this.warningShown.noChunkManager) {
@@ -106,17 +145,15 @@ export class NPCVisionSystem {
       return false;
     }
 
-    // Eye level for observer
     const startPos = {
       x: observer.position.x,
-      y: observer.position.y + 1.6,
+      y: observer.position.y + 1.6, // Eye level
       z: observer.position.z,
     };
 
-    // Chest level for target (center mass)
     const endPos = {
       x: target.position.x,
-      y: target.position.y + 0.85,
+      y: target.position.y + 0.85, // Chest level
       z: target.position.z,
     };
 
@@ -134,6 +171,9 @@ export class NPCVisionSystem {
     return this.raycastToTarget(startPos, direction, distance);
   }
 
+  /**
+   * DDA raycast to check if path to target is clear
+   */
   raycastToTarget(startPos, direction, maxDistance) {
     let gridX = Math.floor(startPos.x);
     let gridY = Math.floor(startPos.y);
@@ -170,7 +210,7 @@ export class NPCVisionSystem {
       const block = this.getBlockAt(gridX, gridY, gridZ);
 
       if (block && this.isBlockSolid(block.blockType)) {
-        return false; // Blocked by solid block
+        return false; // Blocked
       }
 
       if (tMaxX < tMaxY && tMaxX < tMaxZ) {
@@ -187,67 +227,27 @@ export class NPCVisionSystem {
         gridZ += stepZ;
       }
 
-      if (distance > maxDistance) {
-        break;
-      }
+      if (distance > maxDistance) break;
     }
 
     return true; // Clear line of sight
   }
 
-  getBlockAt(x, y, z) {
-    if (!this.chunkManager) return null;
+  // ============================================================
+  // RAYCAST GENERATION (FOR OBSERVATIONS)
+  // ============================================================
 
-    const CHUNK_SIZE = 16;
-    const chunkX = Math.floor(x / CHUNK_SIZE);
-    const chunkY = Math.floor(y / CHUNK_SIZE);
-    const chunkZ = Math.floor(z / CHUNK_SIZE);
-    const localX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const localZ = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-    const blockType = this.chunkManager.getBlockType(
-      chunkX,
-      chunkY,
-      chunkZ,
-      localX,
-      localY,
-      localZ
-    );
-
-    return {
-      blockType: blockType,
-      chunkCoords: { x: chunkX, y: chunkY, z: chunkZ },
-      localCoords: { x: localX, y: localY, z: localZ },
-    };
-  }
-
-  isBlockSolid(blockType) {
-    if (blockType === 0) return false;
-    const transparentBlocks = [7, 23, 24, 26];
-    return !transparentBlocks.includes(blockType);
-  }
-
-  getDirectionVector(observer, target) {
-    const dx = target.position.x - observer.position.x;
-    const dz = target.position.z - observer.position.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-
-    return {
-      x: dx / Math.max(distance, 0.001),
-      z: dz / Math.max(distance, 0.001),
-    };
-  }
-
+  /**
+   * Generate 64 rays for observation encoding
+   */
   generateRaycast(observer, allNPCs, visibleNPCs) {
     const rays = [];
 
     const raysPerRow = Math.floor(Math.sqrt(this.rayCount));
     const numRows = Math.ceil(this.rayCount / raysPerRow);
-    const verticalFOV = this.visionAngle * 0.75;
 
     for (let row = 0; row < numRows; row++) {
-      const pitchAngle = (row / (numRows - 1) - 0.5) * verticalFOV;
+      const pitchAngle = (row / (numRows - 1) - 0.5) * this.verticalFOV;
 
       for (let col = 0; col < raysPerRow; col++) {
         if (rays.length >= this.rayCount) break;
@@ -269,7 +269,9 @@ export class NPCVisionSystem {
     return rays;
   }
 
-  // ✅ FIXED: Much stricter ray-to-target detection
+  /**
+   * Cast a single ray and check for NPCs and blocks
+   */
   castSingleRay(observer, direction, allNPCs) {
     const startPos = {
       x: observer.position.x,
@@ -286,9 +288,11 @@ export class NPCVisionSystem {
       hitNPC: null,
     };
 
+    // Check for NPC hits
     for (const target of allNPCs) {
       if (target === observer || target.role === observer.role) continue;
-      if (target.hideSeekState === NPC.GAME_STATES.FOUND || !target.visible) continue;
+      if (target.hideSeekState === NPC.GAME_STATES.FOUND || !target.visible)
+        continue;
 
       const toTarget = {
         x: target.position.x - startPos.x,
@@ -298,28 +302,25 @@ export class NPCVisionSystem {
 
       const distanceToTarget = Math.sqrt(
         toTarget.x * toTarget.x +
-        toTarget.y * toTarget.y +
-        toTarget.z * toTarget.z
+          toTarget.y * toTarget.y +
+          toTarget.z * toTarget.z
       );
 
       if (distanceToTarget > this.visionRange) continue;
 
-      // Normalize target direction
       const normToTarget = {
         x: toTarget.x / distanceToTarget,
         y: toTarget.y / distanceToTarget,
         z: toTarget.z / distanceToTarget,
       };
 
-      // ✅ CRITICAL FIX: Ray must point almost exactly at target (5° tolerance)
+      // Check if ray points at target (configurable tolerance)
       const dotProduct =
         direction.x * normToTarget.x +
         direction.y * normToTarget.y +
         direction.z * normToTarget.z;
 
-      // cos(5°) ≈ 0.996 - very strict!
-      if (dotProduct > 0.996) {
-        // ✅ Raycast to actual target position, not just direction
+      if (dotProduct > this.rayAngleTolerance) {
         if (this.raycastToTarget(startPos, normToTarget, distanceToTarget)) {
           if (distanceToTarget < closestHit.distance) {
             closestHit = {
@@ -335,7 +336,7 @@ export class NPCVisionSystem {
       }
     }
 
-    // Check for block collision
+    // Check for block hits
     const blockHit = this.raycastForBlock(
       startPos,
       direction,
@@ -356,6 +357,9 @@ export class NPCVisionSystem {
     return closestHit;
   }
 
+  /**
+   * Raycast to find first solid block
+   */
   raycastForBlock(startPos, direction, maxDistance) {
     if (!this.chunkManager) return null;
 
@@ -419,8 +423,69 @@ export class NPCVisionSystem {
     return null;
   }
 
+  // ============================================================
+  // UTILITY METHODS
+  // ============================================================
+
+  getBlockAt(x, y, z) {
+    if (!this.chunkManager) return null;
+
+    const CHUNK_SIZE = 16;
+    const chunkX = Math.floor(x / CHUNK_SIZE);
+    const chunkY = Math.floor(y / CHUNK_SIZE);
+    const chunkZ = Math.floor(z / CHUNK_SIZE);
+    const localX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const localZ = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+    const blockType = this.chunkManager.getBlockType(
+      chunkX,
+      chunkY,
+      chunkZ,
+      localX,
+      localY,
+      localZ
+    );
+
+    return {
+      blockType: blockType,
+      chunkCoords: { x: chunkX, y: chunkY, z: chunkZ },
+      localCoords: { x: localX, y: localY, z: localZ },
+    };
+  }
+
+  isBlockSolid(blockType) {
+    if (blockType === 0) return false;
+    const transparentBlocks = [7, 23, 24, 26]; // Water, seagrass, ice, leaves
+    return !transparentBlocks.includes(blockType);
+  }
+
+  getDirectionVector(observer, target) {
+    const dx = target.position.x - observer.position.x;
+    const dz = target.position.z - observer.position.z;
+    const distance = Math.sqrt(dx * dx + dz * dz);
+
+    return {
+      x: dx / Math.max(distance, 0.001),
+      z: dz / Math.max(distance, 0.001),
+    };
+  }
+
+  // ============================================================
+  // DEBUG HELPERS
+  // ============================================================
+
   getDirectionName(yaw) {
-    const directions = ["North", "NE", "East", "SE", "South", "SW", "West", "NW"];
+    const directions = [
+      "North",
+      "NE",
+      "East",
+      "SE",
+      "South",
+      "SW",
+      "West",
+      "NW",
+    ];
     const index = Math.floor(((yaw + Math.PI) / (2 * Math.PI)) * 8) % 8;
     return directions[index];
   }
@@ -432,39 +497,19 @@ export class NPCVisionSystem {
     const pos = observer.position;
 
     console.log(
-      `\n👁️ ${observer.userData.id} (${observer.role}) at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) facing ${dirName} (yaw: ${observer.yaw.toFixed(2)})`
+      `\n👁️ ${observer.userData.id} (${observer.role}) at (${pos.x.toFixed(
+        1
+      )}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) facing ${dirName}`
     );
 
     if (visionData.visibleNPCs.length > 0) {
-      const targets = visionData.visibleNPCs
-        .map((n) => `${n.id}(${n.role}) at ${n.distance.toFixed(1)}u, dir:(${n.direction.x.toFixed(2)}, ${n.direction.z.toFixed(2)})`)
-        .join("\n     ");
-      console.log(`   ✅ SEES: ${targets}`);
+      console.log(
+        `   ✅ SEES: ${visionData.visibleNPCs
+          .map((n) => `${n.id}(${n.distance.toFixed(1)}u)`)
+          .join(", ")}`
+      );
     } else {
       console.log(`   ❌ No NPCs visible`);
-    }
-
-    const totalRays = visionData.raycastData.rays.length;
-    const blockHits = visionData.raycastData.rays.filter((r) => r.hit && !r.isPlayer).length;
-
-    const rayDetectedNPCs = new Set();
-    const npcRays = visionData.raycastData.rays.filter((r) => r.hit && r.isPlayer);
-    npcRays.forEach((r) => {
-      if (r.hitNPC?.id) rayDetectedNPCs.add(r.hitNPC.id);
-    });
-
-    console.log(`   📊 Rays: ${totalRays} total, ${blockHits} blocks, ${rayDetectedNPCs.size} NPCs (ray)`);
-    console.log(`   🧠 Perception: ${visionData.visibleNPCs.length} NPCs (decision)`);
-
-    if (npcRays.length > 0) {
-      const distances = npcRays.map((r) => r.distance.toFixed(1));
-      console.log(`   📏 NPC distances: ${distances.join(", ")}`);
-    }
-
-    const obstacleRays = visionData.raycastData.rays.filter((r) => r.hit && !r.isPlayer);
-    if (obstacleRays.length > 0) {
-      const closest = Math.min(...obstacleRays.map((r) => r.distance));
-      console.log(`   🧱 Closest obstacle: ${closest.toFixed(1)}u`);
     }
   }
 
@@ -491,14 +536,17 @@ export class NPCVisionSystem {
       );
 
       const color = ray.isPlayer ? 0x00ff00 : ray.hit ? 0xff0000 : 0x444444;
-
-      const geometry = new THREE.BufferGeometry().setFromPoints([startPos, endPos]);
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        startPos,
+        endPos,
+      ]);
       const material = new THREE.LineBasicMaterial({ color });
       const line = new THREE.Line(geometry, material);
 
       scene.add(line);
       newLines.push(line);
     });
+
     this.debugLines.set(npcId, newLines);
   }
 }

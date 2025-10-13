@@ -25,30 +25,47 @@ export class NPCMovementController {
     this.physics = NPC.PHYSICS;
     this.movementStats = new Map();
 
-    // Block systems
+    // Block systems - PASS chunkManager!
     this.blockRemoval = new NPCBlockRemoval();
     this.blockPlacement = new NPCBlockPlacement();
 
-    // Continuous action limits
-    this.maxRotationPerStep = Math.PI / 8; // 22.5 degrees max per step
-    this.maxPitchPerStep = Math.PI / 16; // 11.25 degrees max per step
-    this.maxPitch = Math.PI / 3; // ±60 degrees total pitch range
-    this.jumpCooldown = 0.5; // 0.5 seconds between jumps
+    // ADDED: Set chunkManager on block systems if they have the method
+    if (this.blockRemoval.setChunkManager) {
+      this.blockRemoval.setChunkManager(chunkManager);
+    }
+    if (this.blockPlacement.setChunkManager) {
+      this.blockPlacement.setChunkManager(chunkManager);
+    }
 
-    // Block limits (easy to scale up later)
-    this.maxBlocksPlaced = 1; // TODO: Increase for advanced strategies
-    this.maxBlocksRemoved = 1; // TODO: Increase for advanced strategies
+    // Store references for block operations
+    this.blockRemoval.chunkManager = chunkManager;
+    this.blockRemoval.scene = scene;
+    this.blockPlacement.chunkManager = chunkManager;
+    this.blockPlacement.scene = scene;
+
+    // Continuous action limits
+    this.maxRotationPerStep = Math.PI / 8;
+    this.maxPitchPerStep = Math.PI / 16;
+    this.maxPitch = Math.PI / 3;
+    this.jumpCooldown = 0.5;
+
+    this.maxBlocksPlaced = NPC.BLOCK_PLACEMENT.maxBlocksPlaced;
+    this.maxBlocksRemoved = NPC.BLOCK_REMOVAL.maxBlocksRemoved;
   }
 
   initializeNPC(npc) {
     NPCPhysics.resetNPCPhysics(npc);
 
-    this.blockRemoval.initializeNPC(npc);
-    this.blockPlacement.initializeNPC(npc);
+    // Initialize block systems for this NPC
+    if (this.blockRemoval.initializeNPC) {
+      this.blockRemoval.initializeNPC(npc);
+    }
+    if (this.blockPlacement.initializeNPC) {
+      this.blockPlacement.initializeNPC(npc);
+    }
 
     if (!npc.pitch) npc.pitch = 0;
 
-    // Initialize block counters
     npc.blocksPlaced = 0;
     npc.blocksRemoved = 0;
 
@@ -61,7 +78,6 @@ export class NPCMovementController {
   }
 
   executeActionGroups(npc, actions, deltaTime) {
-    // Seekers frozen during countdown phase
     if (npc.role === "seeker" && npc.inPreparationPhase) {
       return { success: false, results: [] };
     }
@@ -71,7 +87,7 @@ export class NPCMovementController {
     const stats = this.movementStats.get(npc.userData.id);
     const currentTime = Date.now() / 1000;
 
-    // 1. MOVEMENT (forward/backward + strafe)
+    // 1. MOVEMENT
     const movementForward = actions.movement_forward || 0;
     const movementStrafe = actions.movement_strafe || 0;
 
@@ -93,7 +109,7 @@ export class NPCMovementController {
       results.push(result);
     }
 
-    // 3. LOOK UP/DOWN
+    // 3. LOOK
     const lookAmount = actions.look || 0;
     if (Math.abs(lookAmount) > 0.05) {
       const result = this.executeLook(npc, lookAmount);
@@ -106,13 +122,13 @@ export class NPCMovementController {
       results.push(result);
     }
 
-    // 5. BLOCK PLACEMENT (if action included)
+    // 5. BLOCK PLACEMENT - ADDED LOGGING
     if (actions.place_block) {
       const result = this.placeBlock(npc);
       results.push(result);
     }
 
-    // 6. BLOCK REMOVAL (if action included)
+    // 6. BLOCK REMOVAL - ADDED LOGGING
     if (actions.remove_block) {
       const result = this.removeBlock(npc);
       results.push(result);
@@ -124,12 +140,7 @@ export class NPCMovementController {
     };
   }
 
-  // ============================================================
-  // MOVEMENT
-  // ============================================================
-
   executeMovement(npc, forward, strafe, speed, deltaTime) {
-    // Calculate combined direction vector
     const forwardDir = new THREE.Vector3(
       -Math.sin(npc.yaw),
       0,
@@ -169,17 +180,9 @@ export class NPCMovementController {
     };
   }
 
-  // ============================================================
-  // ROTATION
-  // ============================================================
-
   executeRotation(npc, amount) {
-    // amount: -1 (left) to +1 (right)
     const rotationChange = amount * this.maxRotationPerStep;
-
     npc.yaw += rotationChange;
-
-    // Normalize to -π to π
     npc.yaw = ((npc.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
 
     return {
@@ -190,19 +193,10 @@ export class NPCMovementController {
     };
   }
 
-  // ============================================================
-  // LOOK UP/DOWN
-  // ============================================================
-
   executeLook(npc, amount) {
-    // amount: -1 (down) to +1 (up)
     const pitchChange = amount * this.maxPitchPerStep;
-
     if (!npc.pitch) npc.pitch = 0;
-
     npc.pitch += pitchChange;
-
-    // Clamp to ±60 degrees
     npc.pitch = Math.max(-this.maxPitch, Math.min(this.maxPitch, npc.pitch));
 
     return {
@@ -213,16 +207,11 @@ export class NPCMovementController {
     };
   }
 
-  // ============================================================
-  // JUMP
-  // ============================================================
-
   executeJump(npc, stats, currentTime) {
     if (!stats) {
       return { success: false, action: "jump", reason: "no_stats" };
     }
 
-    // Check if on ground and cooldown elapsed
     if (!npc.isOnGround) {
       return { success: false, action: "jump", reason: "not_on_ground" };
     }
@@ -231,7 +220,6 @@ export class NPCMovementController {
       return { success: false, action: "jump", reason: "cooldown" };
     }
 
-    // Execute jump
     const success = NPCPhysics.makeNPCJump(npc, this.physics.JUMP_SPEED);
 
     if (success) {
@@ -239,7 +227,6 @@ export class NPCMovementController {
       stats.jumpAttempts++;
       stats.lastJumpTime = currentTime;
 
-      // Add forward momentum to jump
       const forwardDir = {
         x: -Math.sin(npc.yaw),
         z: -Math.cos(npc.yaw),
@@ -253,10 +240,6 @@ export class NPCMovementController {
     return { success: false, action: "jump", reason: "physics_failed" };
   }
 
-  // ============================================================
-  // BLOCK PLACEMENT
-  // ============================================================
-
   placeBlock(npc) {
     // Check limit
     if (npc.blocksPlaced >= this.maxBlocksPlaced) {
@@ -267,7 +250,17 @@ export class NPCMovementController {
       };
     }
 
-    // Find valid positions within 3 blocks
+    // ADDED: Check if block system is available
+    if (!this.blockPlacement || !this.blockPlacement.findValidPositions) {
+      console.error("Block placement system not initialized!");
+      return {
+        success: false,
+        action: "place_block",
+        reason: "system_not_initialized",
+      };
+    }
+
+    // Find valid positions
     const validPositions = this.blockPlacement.findValidPositions(npc, 3);
 
     if (validPositions.length === 0) {
@@ -278,7 +271,7 @@ export class NPCMovementController {
       };
     }
 
-    // Choose closest valid position
+    // Choose closest position
     const targetPos = validPositions.reduce((closest, pos) => {
       const distToPos = Math.sqrt(
         Math.pow(pos.x - npc.position.x, 2) +
@@ -293,7 +286,6 @@ export class NPCMovementController {
       return distToPos < distToClosest ? pos : closest;
     });
 
-    // Pick random block type
     const blockType =
       AVAILABLE_BLOCKS[Math.floor(Math.random() * AVAILABLE_BLOCKS.length)];
 
@@ -322,10 +314,6 @@ export class NPCMovementController {
     };
   }
 
-  // ============================================================
-  // BLOCK REMOVAL
-  // ============================================================
-
   removeBlock(npc) {
     // Check limit
     if (npc.blocksRemoved >= this.maxBlocksRemoved) {
@@ -336,7 +324,17 @@ export class NPCMovementController {
       };
     }
 
-    // Find blocks within 3 units
+    // ADDED: Check if block system is available
+    if (!this.blockRemoval || !this.blockRemoval.findBlocksInRadius) {
+      console.error("Block removal system not initialized!");
+      return {
+        success: false,
+        action: "remove_block",
+        reason: "system_not_initialized",
+      };
+    }
+
+    // Find nearby blocks
     const nearbyBlocks = this.blockRemoval.findBlocksInRadius(npc, 3);
 
     if (nearbyBlocks.length === 0) {
@@ -371,10 +369,6 @@ export class NPCMovementController {
       reason: "removal_failed",
     };
   }
-
-  // ============================================================
-  // UTILITIES
-  // ============================================================
 
   getMovementStats(npcId) {
     return this.movementStats.get(npcId) || null;

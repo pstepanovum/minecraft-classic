@@ -2,12 +2,15 @@
 // FILE: research/src/ui/hide-seek-ui.js
 // ==============================================================
 
+import { NPC } from "../npc/config-npc-behavior.js";
+
 export class HideSeekUI {
   constructor(npcSystem, callbacks = {}) {
     this.npcSystem = npcSystem;
     this.callbacks = callbacks;
     this.updateInterval = null;
     this.isVisible = false;
+    this.trainingMode = NPC.TRAINING.debug;
 
     this.setupUI();
     this.setupEventListeners();
@@ -39,22 +42,24 @@ export class HideSeekUI {
         </div>
         
         <div class="hs-section">
-            <h4>TRAINING</h4>
+          <h4>TRAINING</h4>
             <div class="hs-controls">
-                <button id="hs-start-training" class="btn">START NEW TRAINING</button>
-                <div class="hs-load-controls">
-                    <button id="hs-load-model" class="btn">LOAD MODEL</button>
-                    <input type="number" id="hs-episode-number" value="500" placeholder="Ep #" title="Episode Number">
-                </div>
+              <button id="hs-start-training" class="btn">START TRAINING</button>
+              <button id="hs-demo-model" class="btn">DEMO TRAINED MODEL</button>  <!-- ADD THIS -->
+              <button id="hs-stop-training" class="btn btn-stop" style="display: none;">STOP TRAINING</button>
             </div>
+          <div class="hs-training-status" id="hs-training-status" style="display: none;">
+            <div class="status-line">EPISODE: <span id="hs-train-episode">0</span></div>
+            <div class="status-line">MODE: <span id="hs-train-mode">IDLE</span></div>
+          </div>
         </div>
 
         <div class="hs-section">
-          <h4>GAME CONTROLS</h4>
+          <h4>MANUAL DEMO</h4>
           <div class="hs-controls">
             <button id="hs-start" class="btn btn-start">START GAME (H)</button>
             <button id="hs-restart" class="btn btn-restart">RESTART (J)</button>
-            <button id="hs-stop" class="btn btn-stop">STOP GAME (K)</button>
+            <button id="hs-stop" class="btn btn-stop">STOP (K)</button>
           </div>
         </div>
         
@@ -72,13 +77,6 @@ export class HideSeekUI {
           <h4>NPC LIST</h4>
           <div class="hs-npc-list" id="hs-npc-list">
             <div class="npc-line">NO NPCS SPAWNED</div>
-          </div>
-        </div>
-        
-        <div class="hs-section">
-          <h4>DEBUG CONTROLS</h4>
-          <div class="hs-debug">
-            <button id="hs-camera" class="btn-debug">NPC CAMERA (C)</button>
           </div>
         </div>
       </div>
@@ -117,11 +115,10 @@ export class HideSeekUI {
       .btn:hover { background: #727272; color: #ffffff; }
       .btn:disabled { background: #373737; color: #727272; cursor: not-allowed; border-color: #727272; }
       .btn:disabled:hover { background: #373737; color: #727272; }
-      .hs-load-controls { display: flex; gap: 4px; }
-      .hs-load-controls .btn { flex-grow: 1; }
-      #hs-episode-number {
-        width: 60px; background: #727272; border: 1px solid #8b8b8b; color: white;
-        text-align: center; font-family: 'Courier New', monospace; font-weight: bold;
+      .btn-stop { background: #ff6666; color: #ffffff; }
+      .btn-stop:hover { background: #ff4444; }
+      .hs-training-status { 
+        background: #727272; color: #ffffff; padding: 8px; margin-top: 8px;
       }
       .hs-status { background: #727272; color: #ffffff; padding: 8px; }
       .status-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10px; }
@@ -132,15 +129,10 @@ export class HideSeekUI {
       .npc-seeker { color: #ff6666; font-weight: bold; }
       .npc-hider { color: #66ff66; }
       .npc-found { color: #727272; text-decoration: line-through; }
-      .hs-debug { display: flex; flex-direction: column; gap: 4px; }
-      .btn-debug {
-        background: transparent; color: #ffffff; border: 1px solid #8b8b8b; padding: 6px; cursor: pointer;
-        font-family: 'Courier New', monospace; font-size: 9px; font-weight: bold; text-transform: uppercase;
-      }
-      .btn-debug:hover { background: #8b8b8b; color: #373737; }
       .state-countdown { color: #ffff66; font-weight: bold; }
       .state-seeking { color: #66ff66; font-weight: bold; }
       .state-game-over { color: #ff6666; font-weight: bold; }
+      .state-training { color: #66ccff; font-weight: bold; }
       .hs-npc-list::-webkit-scrollbar { width: 8px; }
       .hs-npc-list::-webkit-scrollbar-track { background: #373737; }
       .hs-npc-list::-webkit-scrollbar-thumb { background: #8b8b8b; }
@@ -165,17 +157,13 @@ export class HideSeekUI {
   show() {
     this.isVisible = true;
     const overlay = document.getElementById("hide-seek-overlay");
-    if (overlay) {
-      overlay.style.display = "block";
-    }
+    if (overlay) overlay.style.display = "block";
   }
 
   hide() {
     this.isVisible = false;
     const overlay = document.getElementById("hide-seek-overlay");
-    if (overlay) {
-      overlay.style.display = "none";
-    }
+    if (overlay) overlay.style.display = "none";
   }
 
   //--------------------------------------------------------------//
@@ -183,6 +171,7 @@ export class HideSeekUI {
   //--------------------------------------------------------------//
 
   setupEventListeners() {
+    // Toggle UI with P key
     document.addEventListener("keydown", (e) => {
       if (
         e.key.toLowerCase() === "p" &&
@@ -195,10 +184,52 @@ export class HideSeekUI {
       }
     });
 
+    // Close button
     document.getElementById("hs-close")?.addEventListener("click", () => {
       this.hide();
     });
 
+    // Demo trained model button
+    document
+      .getElementById("hs-demo-model")
+      ?.addEventListener("click", async () => {
+        if (
+          confirm(
+            "Start demo mode? This will show the trained agents playing.\n\nMake sure Python demo is running!"
+          )
+        ) {
+          if (window.startDemoMode) {
+            await window.startDemoMode();
+          }
+        }
+      });
+
+    // Training controls
+    document
+      .getElementById("hs-start-training")
+      ?.addEventListener("click", () => {
+        if (
+          confirm(
+            "Start PPO training? This will take a long time.\n\nMake sure Python backend is running!"
+          )
+        ) {
+          this.callbacks.onStartTraining?.();
+          this.setTrainingMode(true);
+        }
+      });
+
+    document
+      .getElementById("hs-stop-training")
+      ?.addEventListener("click", () => {
+        if (confirm("Stop training?")) {
+          if (window.stopPPOTraining) {
+            window.stopPPOTraining();
+          }
+          this.setTrainingMode(false);
+        }
+      });
+
+    // Manual game controls
     document
       .getElementById("hs-start")
       ?.addEventListener("click", () => this.startGame());
@@ -209,105 +240,55 @@ export class HideSeekUI {
       .getElementById("hs-stop")
       ?.addEventListener("click", () => this.stopGame());
 
-    document
-      .getElementById("hs-camera")
-      ?.addEventListener("click", () => this.toggleNPCCamera());
-
-    document
-      .getElementById("hs-start-training")
-      ?.addEventListener("click", () => {
-        if (confirm("This will start a long training process. Are you sure?")) {
-          this.callbacks.onStartTraining?.();
-          this.disableMLButtons();
-        }
-      });
-
-    document
-      .getElementById("hs-load-model")
-      ?.addEventListener("click", async () => {
-        const episodeInput = document.getElementById("hs-episode-number");
-        const episode = episodeInput ? parseInt(episodeInput.value, 10) : 500;
-
-        const modelInput = document.createElement("input");
-        modelInput.type = "file";
-        modelInput.accept = ".json,.bin";
-        modelInput.multiple = true;
-
-        alert(
-          `Please select ALL 4 model files at once:\n\n` +
-            `1. seeker_ep${episode}.json\n` +
-            `2. seeker_ep${episode}.weights.bin\n` +
-            `3. hider_ep${episode}.json\n` +
-            `4. hider_ep${episode}.weights.bin\n\n` +
-            `Hold Ctrl (or Cmd on Mac) and click all 4 files, then press Open.`
-        );
-
-        const allFiles = await new Promise((resolve) => {
-          modelInput.onchange = (e) => resolve(e.target.files);
-          modelInput.click();
-        });
-
-        if (!allFiles || allFiles.length < 4) {
-          alert(
-            `You must select all 4 files (you selected ${
-              allFiles?.length || 0
-            }).\n\n` +
-              `Expected files:\n` +
-              `- seeker .json and .weights.bin\n` +
-              `- hider .json and .weights.bin\n\n` +
-              `Operation cancelled.`
-          );
-          return;
-        }
-
-        // Separate the files into seeker and hider
-        const seekerFiles = [];
-        const hiderFiles = [];
-
-        for (let i = 0; i < allFiles.length; i++) {
-          const file = allFiles[i];
-          if (file.name.toLowerCase().includes("seeker")) {
-            seekerFiles.push(file);
-          } else if (file.name.toLowerCase().includes("hider")) {
-            hiderFiles.push(file);
-          }
-        }
-
-        if (seekerFiles.length < 2) {
-          alert(
-            `Missing seeker files! Found ${seekerFiles.length}/2.\n` +
-              `Make sure you selected both seeker_ep${episode}.json and seeker_ep${episode}.weights.bin`
-          );
-          return;
-        }
-
-        if (hiderFiles.length < 2) {
-          alert(
-            `Missing hider files! Found ${hiderFiles.length}/2.\n` +
-              `Make sure you selected both hider_ep${episode}.json and hider_ep${episode}.weights.bin`
-          );
-          return;
-        }
-
-        console.log(`✅ All 4 files selected successfully`);
-
-        // Pass the arrays directly - they'll work with tf.io.browserFiles
-        this.callbacks.onLoadModel?.(episode, seekerFiles, hiderFiles);
-        this.disableMLButtons();
-      });
-
+    // Keyboard shortcuts
     document.addEventListener("keydown", (e) => this.handleKeyPress(e));
   }
 
-  disableMLButtons() {
-    const startTrainingBtn = document.getElementById("hs-start-training");
-    const loadModelBtn = document.getElementById("hs-load-model");
-    if (startTrainingBtn) startTrainingBtn.disabled = true;
-    if (loadModelBtn) loadModelBtn.disabled = true;
+  setTrainingMode(active) {
+    this.trainingMode = active;
+
+    const startBtn = document.getElementById("hs-start-training");
+    const stopBtn = document.getElementById("hs-stop-training");
+    const trainingStatus = document.getElementById("hs-training-status");
+    const modeSpan = document.getElementById("hs-train-mode");
+
+    if (active) {
+      if (startBtn) startBtn.style.display = "none";
+      if (stopBtn) stopBtn.style.display = "block";
+      if (trainingStatus) trainingStatus.style.display = "block";
+      if (modeSpan) modeSpan.textContent = "TRAINING";
+
+      // Disable manual controls during training
+      const manualButtons = ["hs-start", "hs-restart", "hs-stop"];
+      manualButtons.forEach((id) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = true;
+      });
+    } else {
+      if (startBtn) startBtn.style.display = "block";
+      if (stopBtn) stopBtn.style.display = "none";
+      if (trainingStatus) trainingStatus.style.display = "none";
+      if (modeSpan) modeSpan.textContent = "IDLE";
+
+      // Re-enable manual controls
+      const manualButtons = ["hs-start", "hs-restart", "hs-stop"];
+      manualButtons.forEach((id) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = false;
+      });
+    }
+  }
+
+  updateTrainingEpisode(episode) {
+    const episodeSpan = document.getElementById("hs-train-episode");
+    if (episodeSpan) {
+      episodeSpan.textContent = episode;
+    }
   }
 
   handleKeyPress(e) {
     if (e.ctrlKey || e.altKey || e.target.tagName === "INPUT") return;
+    if (this.trainingMode) return; // Disable shortcuts during training
 
     switch (e.key.toLowerCase()) {
       case "h":
@@ -318,9 +299,6 @@ export class HideSeekUI {
         break;
       case "k":
         this.stopGame();
-        break;
-      case "c":
-        this.toggleNPCCamera();
         break;
     }
   }
@@ -346,7 +324,6 @@ export class HideSeekUI {
   stopGame() {
     console.log("Stopping Hide and Seek game...");
 
-    // Stop continuous demo if running
     if (window.isRunningDemo) {
       window.isRunningDemo = false;
       console.log("Stopped continuous demonstration");
@@ -379,23 +356,6 @@ export class HideSeekUI {
   }
 
   //--------------------------------------------------------------//
-  //                      Debug Controls
-  //--------------------------------------------------------------//
-
-  toggleNPCCamera() {
-    const seekers = this.npcSystem.getNPCsByRole("seeker");
-    const seeker = seekers && seekers.length > 0 ? seekers[0] : null;
-
-    if (!seeker) {
-      console.warn("No seeker found for camera view");
-      return;
-    }
-
-    const enabled = this.npcSystem.hideSeekManager.toggleNPCCamera(seeker);
-    console.log(`NPC camera: ${enabled ? "active" : "inactive"}`);
-  }
-
-  //--------------------------------------------------------------//
   //                      Status Updates
   //--------------------------------------------------------------//
 
@@ -411,34 +371,52 @@ export class HideSeekUI {
   updateGameStatus() {
     const status = this.npcSystem.getHideSeekStatus();
 
+    // Update state
     const stateElement = document.getElementById("hs-state");
     if (stateElement) {
-      stateElement.textContent = this.formatGameState(status.state);
-      stateElement.className = `state-${status.state.replace("_", "-")}`;
+      const displayState = this.trainingMode
+        ? "TRAINING"
+        : this.formatGameState(status.state);
+      stateElement.textContent = displayState;
+      stateElement.className = this.trainingMode
+        ? "state-training"
+        : `state-${status.state.replace("_", "-")}`;
     }
 
+    // Update found count
     const foundElement = document.getElementById("hs-found");
     if (foundElement) {
       foundElement.textContent = `${status.hidersFound}/${status.totalHiders}`;
     }
 
+    // FIXED: Update time display
     const timeElement = document.getElementById("hs-time");
     if (timeElement) {
-      const minutes = Math.floor(status.gameTime / 60000);
-      const seconds = Math.floor((status.gameTime % 60000) / 1000);
-      timeElement.textContent = `${minutes}:${seconds
-        .toString()
-        .padStart(2, "0")}`;
+      if (this.trainingMode) {
+        // During training, show step count instead of time
+        const bridge = window.activePPOBridge;
+        const stepCount = bridge?.currentStep || 0;
+        timeElement.textContent = `STEP ${stepCount}`;
+      } else {
+        // Normal mode - show actual time
+        const minutes = Math.floor(status.gameTime / 60000);
+        const seconds = Math.floor((status.gameTime % 60000) / 1000);
+        timeElement.textContent = `${minutes}:${seconds
+          .toString()
+          .padStart(2, "0")}`;
+      }
     }
 
+    // Update NPC count
     const npcsElement = document.getElementById("hs-npcs");
     if (npcsElement) {
       npcsElement.textContent = this.npcSystem.npcs.length;
     }
 
-    if (status.state === "game_over") {
+    // Update button states
+    if (status.state === "game_over" && !this.trainingMode) {
       this.updateButtons("stopped");
-    } else if (status.state !== "waiting") {
+    } else if (status.state !== "waiting" && !this.trainingMode) {
       this.updateButtons("playing");
     }
   }

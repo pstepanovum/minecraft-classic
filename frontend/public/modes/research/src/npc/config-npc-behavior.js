@@ -1,3 +1,5 @@
+// FILE: research/src/npc/config-npc-behavior.js
+
 export const NPC = {
   PHYSICS: {
     JUMP_SPEED: 8.4,
@@ -14,30 +16,32 @@ export const NPC = {
   },
 
   VISION: {
-    visionRange: 32,          // Reduced from 64 - more realistic
-    visionAngle: Math.PI / 2.5,   // ~72° - narrower, more realistic
-    rayCount: 64,              // Increased from 32 - better perception
-    rayPrecisionAngle: 0.2,
-    debug: true,
+    visionRange: 32,
+    visionAngle: Math.PI / 2.5,
+    rayCount: 64,
+    rayAngleTolerance: 0.996,
+    debug: false,
   },
 
   BLOCK_REMOVAL: {
     maxReachDistance: 5,
+    maxBlocksRemoved: 10,
   },
 
   BLOCK_PLACEMENT: {
     maxReachDistance: 5,
     availableBlockTypes: [1, 2, 3, 4, 5],
+    maxBlocksPlaced: 10,
   },
 
   HIDE_AND_SEEK: {
     seekerCount: 1,
     hiderCount: 2,
-    gameTimeLimit: 45000,         // 45 seconds
-    countdownTime: 5000,          // 5 seconds prep time (seeker can't move)
+    gameTimeLimit: 40000, // 40 seconds
+    countdownTime: 5000, // 5 seconds prep time (seeker can't move)
 
     SEEKER: {
-      detectionTime: 1000,        // 1 second to catch - more forgiving
+      detectionTime: 1000, // 1 second to catch - more forgiving
       visualIndicatorColor: 0xff4444,
     },
 
@@ -65,9 +69,10 @@ export const NPC = {
 
   TRAINING: {
     enabled: true,
+    debug: false,
 
     MODEL: {
-      stateSize: 91,
+      stateSize: 94,
     },
   },
 };

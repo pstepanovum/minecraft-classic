@@ -103,12 +103,9 @@ export class HideSeekManager {
     this.gameState = NPC.GAME_STATES.GAME_OVER;
     this.gameRunning = false;
 
-    const gameTime =
-      this.gameStartTime > 0 ? Date.now() - this.gameStartTime : 0;
-
     this.npcs.forEach((npc) => {
       npc.role = null;
-      npc.hideSeekState = null;
+      // npc.hideSeekState = null;
       npc.mlControlled = false;
     });
   }

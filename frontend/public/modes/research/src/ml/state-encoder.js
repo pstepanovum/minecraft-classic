@@ -7,7 +7,7 @@ import { CLIENT_WORLD_CONFIG } from "../../../../src/core/game-state.js";
 
 export class StateEncoder {
   constructor() {
-    this.stateSize = 91;
+    this.stateSize = 94;
 
     this.encoding = {
       position: { start: 0, size: 3 },
@@ -19,9 +19,9 @@ export class StateEncoder {
       gameInfo: { start: 77, size: 4 },
       targetMemory: { start: 81, size: 4 },
       roleSpecific: { start: 85, size: 6 },
+      blockInfo: { start: 91, size: 3 }, // ADDED
     };
 
-    // ADDED: Constants for normalization
     this.RAY_MAX_DIST = NPC.VISION?.visionRange || 32;
   }
 
@@ -30,12 +30,13 @@ export class StateEncoder {
 
     this.encodePosition(state, npc.position, worldSize);
     this.encodeOrientation(state, npc.yaw, npc.pitch);
-    this.encodeVelocity(state, npc); // CHANGED: Pass whole npc for role check
+    this.encodeVelocity(state, npc);
     state[this.encoding.onGround.start] = npc.isOnGround ? 1 : 0;
     this.encodeBoundaryProximity(state, npc, worldSize);
     this.encodeVisualField(state, perceptionData);
     this.encodeGameInfo(state, gameState);
     this.encodeTargetMemory(state, npc);
+    this.encodeBlockInfo(state, npc, perceptionData); // ADDED
 
     if (npc.role === "seeker") {
       this.encodeSeekerInfo(state, npc, perceptionData);
@@ -74,10 +75,8 @@ export class StateEncoder {
   }
 
   encodeVelocity(state, npc) {
-    // CHANGED: Accept npc instead of just velocity
     const { start } = this.encoding.velocity;
 
-    // FIXED: Use appropriate max speed based on role
     const maxSpeed =
       npc.role === "seeker" ? NPC.PHYSICS.SPRINT_SPEED : NPC.PHYSICS.WALK_SPEED;
 
@@ -111,7 +110,6 @@ export class StateEncoder {
       const ray = rays[i];
 
       if (ray.hit) {
-        // FIXED: Use constant instead of hardcoded 32
         const normalizedDistance = ray.distance / this.RAY_MAX_DIST;
 
         if (ray.isPlayer) {
@@ -130,33 +128,33 @@ export class StateEncoder {
     }
 
     const blockMap = {
-      1: 0.9, // BEDROCK
-      2: 0.2, // GRASS
-      3: 0.5, // STONE
-      4: 0.3, // DIRT
-      5: 0.25, // SAND
-      6: 0.2, // SNOW
-      7: 0.1, // WATER
-      8: 0.5, // COAL_ORE
-      9: 0.5, // IRON_ORE
-      10: 0.5, // GOLD_ORE
-      11: 0.5, // DIAMOND_ORE
-      12: 0.5, // EMERALD_ORE
-      13: 0.5, // REDSTONE_ORE
-      14: 0.5, // LAPIS_ORE
-      15: 0.3, // PODZOL
-      16: 0.3, // MUD
-      17: 0.25, // RED_SAND
-      18: 0.4, // GRAVEL
-      19: 0.35, // CLAY
-      20: 0.2, // JUNGLE_GRASS
-      21: 0.2, // SAVANNA_GRASS
-      22: 0.2, // SNOW_GRASS
-      23: 0.15, // SEAGRASS
-      24: 0.15, // ICE
-      25: 0.7, // LOG
-      26: 0.6, // LEAVES
-      27: 0.5, // WOOD
+      1: 0.9,
+      2: 0.2,
+      3: 0.5,
+      4: 0.3,
+      5: 0.25,
+      6: 0.2,
+      7: 0.1,
+      8: 0.5,
+      9: 0.5,
+      10: 0.5,
+      11: 0.5,
+      12: 0.5,
+      13: 0.5,
+      14: 0.5,
+      15: 0.3,
+      16: 0.3,
+      17: 0.25,
+      18: 0.4,
+      19: 0.35,
+      20: 0.2,
+      21: 0.2,
+      22: 0.2,
+      23: 0.15,
+      24: 0.15,
+      25: 0.7,
+      26: 0.6,
+      27: 0.5,
     };
 
     return blockMap[blockType] || 0.5;
@@ -166,8 +164,6 @@ export class StateEncoder {
     const { start } = this.encoding.gameInfo;
 
     const now = Date.now();
-
-    // FIXED: Handle countdown phase properly
     const started = !!gameState.gameStartTime && gameState.gameStartTime <= now;
     const timeElapsed = started ? now - gameState.gameStartTime : 0;
     const totalGameTime = NPC.HIDE_AND_SEEK.gameTimeLimit;
@@ -178,7 +174,6 @@ export class StateEncoder {
     const totalHiders = gameState.totalHiders || 2;
     state[start + 1] = (gameState.hidersFound || 0) / totalHiders;
 
-    // FIXED: Use constant instead of string
     state[start + 2] = gameState.state === NPC.GAME_STATES.SEEKING ? 1 : 0;
 
     state[start + 3] = timeRemaining < 20000 ? 1 : 0;
@@ -198,7 +193,6 @@ export class StateEncoder {
     state[start] = npc.lastSeenTarget.x / 64;
     state[start + 1] = npc.lastSeenTarget.z / 64;
 
-    // FIXED: Add small floor to prevent complete underflow (optional but safe)
     const timeSince = Date.now() - npc.lastSeenTarget.time;
     state[start + 2] = Math.max(0.01, Math.exp(-timeSince / 10000));
 
@@ -280,6 +274,37 @@ export class StateEncoder {
     }
   }
 
+  // ADDED: Block info encoding
+  encodeBlockInfo(state, npc, perceptionData) {
+    const { start } = this.encoding.blockInfo;
+
+    const maxPlaced = 1;
+    const maxRemoved = 1;
+
+    // [0] Can place block?
+    const blocksPlaced = npc.blocksPlaced || 0;
+    state[start] = blocksPlaced < maxPlaced ? 1.0 : 0.0;
+
+    // [1] Can remove block?
+    const blocksRemoved = npc.blocksRemoved || 0;
+    state[start + 1] = blocksRemoved < maxRemoved ? 1.0 : 0.0;
+
+    // [2] Blocks nearby to interact with?
+    let nearbyBlockCount = 0;
+    const interactionRange = 3;
+
+    if (perceptionData?.raycastData?.rays) {
+      const rays = perceptionData.raycastData.rays;
+      for (const ray of rays) {
+        if (ray.hit && !ray.isPlayer && ray.distance < interactionRange) {
+          nearbyBlockCount++;
+        }
+      }
+    }
+
+    state[start + 2] = Math.min(1.0, nearbyBlockCount / 10);
+  }
+
   getBlockAt(worldX, worldY, worldZ) {
     if (!this.chunkManager) {
       return null;
@@ -324,6 +349,12 @@ export class StateEncoder {
       }
       if (action.jump) {
         parts.push("jump");
+      }
+      if (action.place_block) {
+        parts.push("place");
+      }
+      if (action.remove_block) {
+        parts.push("remove");
       }
     }
 

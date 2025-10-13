@@ -273,7 +273,7 @@ async function startNewTraining() {
     return;
   }
 
-  console.log("Starting PPO training with Python backend...");
+  console.log("🚀 Starting PPO training with Python backend...");
 
   try {
     // Dynamically import the PPO bridge
@@ -287,44 +287,120 @@ async function startNewTraining() {
     );
 
     // Connect to Python backend
-    console.log("Connecting to Python...");
+    console.log("🔌 Connecting to Python backend...");
     const connected = await ppoBridge.connect();
 
     if (!connected) {
       alert(
-        "Failed to connect to Python backend. Make sure 'python main.py' is running!"
+        "❌ Failed to connect to Python backend.\n\nMake sure 'python main.py' is running!"
       );
+      // Reset UI
+      if (window.hideSeekUI) {
+        window.hideSeekUI.setTrainingMode(false);
+      }
       return;
     }
 
-    // Store globally so we can stop it
+    // Store globally so we can access it
     window.activePPOBridge = ppoBridge;
 
-    alert("✅ Connected to Python! Starting training...");
-    console.log("✅ Connected to Python PPO trainer - starting training loop");
+    console.log("✅ Connected to Python PPO trainer");
 
     // Set game mode
     npcSystem.setGameMode("hide_and_seek");
 
-    await ppoBridge.startTraining(10); // 10 episodes
+    // Start training (runs indefinitely until stopped)
+    await ppoBridge.startTraining();
 
-    console.log("✅ Training complete!");
-    alert("Training session finished!");
+    console.log("✅ Training session ended");
+
+    // Reset UI
+    if (window.hideSeekUI) {
+      window.hideSeekUI.setTrainingMode(false);
+    }
   } catch (error) {
     console.error("❌ Training error:", error);
     alert(`Training failed: ${error.message}`);
+
+    // Reset UI
+    if (window.hideSeekUI) {
+      window.hideSeekUI.setTrainingMode(false);
+    }
   }
 }
 
-// Add a stop function
+// Stop training function
 window.stopPPOTraining = function () {
   if (window.activePPOBridge) {
     window.activePPOBridge.stopTraining();
     console.log("⚠️ Training stopped by user");
+
+    // Reset UI
+    if (window.hideSeekUI) {
+      window.hideSeekUI.setTrainingMode(false);
+    }
   } else {
-    console.log("No active training session");
+    console.log("ℹ️ No active training session");
   }
 };
+
+async function startDemoMode() {
+  if (!npcSystem || !npcSystem.hideSeekManager) {
+    console.error("Cannot start demo: NPCSystem not ready.");
+    return;
+  }
+
+  console.log("🎮 Starting demo mode with trained model...");
+
+  try {
+    const { PPOTrainingBridge } = await import("./ml/ppo-training-bridge.js");
+
+    const ppoBridge = new PPOTrainingBridge(
+      npcSystem,
+      npcSystem.hideSeekManager,
+      GameState.chunkManager
+    );
+
+    // Enable debug mode for visual demo
+    ppoBridge.DEBUG_MODE = true;
+
+    console.log("🔌 Connecting to Python demo server...");
+    const connected = await ppoBridge.connect();
+
+    if (!connected) {
+      alert(
+        "❌ Failed to connect.\n\nMake sure 'python demo_model.py' is running!"
+      );
+      if (window.hideSeekUI) {
+        window.hideSeekUI.setTrainingMode(false);
+      }
+      return;
+    }
+
+    window.activePPOBridge = ppoBridge;
+
+    console.log("✅ Connected! Watching trained agents play...");
+
+    // Update UI
+    if (window.hideSeekUI) {
+      window.hideSeekUI.setTrainingMode(true);
+    }
+
+    npcSystem.setGameMode("hide_and_seek");
+
+    // Start demo mode (same message handling as training)
+    await ppoBridge.startDemo();
+  } catch (error) {
+    console.error("❌ Demo error:", error);
+    alert(`Demo failed: ${error.message}`);
+
+    if (window.hideSeekUI) {
+      window.hideSeekUI.setTrainingMode(false);
+    }
+  }
+}
+
+window.startDemoMode = startDemoMode;
 
 function startGameIfReady() {
   if (GameState.isGameReady()) {

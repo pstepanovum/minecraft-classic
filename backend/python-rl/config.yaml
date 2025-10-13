@@ -1,82 +1,77 @@
+# ==============================================================
 # Environment Configuration
+# ==============================================================
 environment:
-  observation_size: 91  # CHANGED: from 143 to 91
+  observation_size: 94
 
-  # CHANGED: Now using continuous action space
   action_space_type: "continuous"
-  
-  # Continuous action space: Box(7)
-  # [forward/back, strafe, rotation, look, jump, place_block, remove_block]
+
   continuous_actions:
-    movement_forward: [-1.0, 1.0]    # forward/backward
-    movement_strafe: [-1.0, 1.0]     # strafe left/right
-    rotation: [-1.0, 1.0]            # rotate left/right
-    look: [-1.0, 1.0]                # look up/down
-    jump: [0.0, 1.0]                 # jump (threshold at 0.5)
-    place_block: [0.0, 1.0]          # place block (threshold at 0.5)
-    remove_block: [0.0, 1.0]         # remove block (threshold at 0.5)
+    movement_forward: [-1.0, 1.0]
+    movement_strafe: [-1.0, 1.0]
+    rotation: [-1.0, 1.0]
+    look: [-1.0, 1.0]
+    jump: [0.0, 1.0]
+    place_block: [0.0, 1.0]
+    remove_block: [0.0, 1.0]
 
-  # Episode settings
-  max_steps: 1000
+  max_steps: 150
 
-  # Reward configuration
   rewards:
-    # Seeker rewards
-    seeker_catch: 10.0
-    seeker_explore_new: 0.1
+    seeker_visibility: 1.0 # +1 per visible hider
+    hider_hidden: 1.0 # +1 when hidden
+    hider_seen: -1.0 # -1 when seen
 
-    # Hider rewards
-    hider_caught: -10.0
-    hider_survive: 15.0
+    # Optional small bonuses
+    exploration: 0.1 # New cell visited (seekers)
+    stationary: 0.05 # Still while hidden (hiders)
+    time_penalty: -0.001 # Encourages efficiency
 
-    # Universal penalties
-    boundary_collision: -1.0
-    stationary: -0.01
+    # Episode end bonuses (applied once at game end)
+    seeker_success: 10.0 # CHANGED from 20.0 - all hiders caught
+    seeker_failure: -5.0 # CHANGED from -10.0 - time ran out
+    hider_survival: 10.0 # CHANGED from 15.0 - survived
+    hider_caught: -5.0 # CHANGED from -10.0 - got caught
 
-# PPO Hyperparameters (Ray RLlib)
+# ==============================================================
+# PPO Hyperparameters
+# ==============================================================
 ppo:
-  # Learning rates (different for each role)
-  lr_seeker: 0.0003
-  lr_hider: 0.00025
-
-  # Discount factor
+  lr_seeker: 0.0001
+  lr_hider: 0.0001
   gamma: 0.99
-
-  # GAE lambda
   lambda: 0.95
-
-  # Clipping
   clip_param: 0.2
-
-  # Loss coefficients
   vf_loss_coeff: 0.5
-  entropy_coeff: 0.01
-
-  # Batch sizes
+  entropy_coeff: 0.001
   train_batch_size: 4000
   minibatch_size: 128
   num_epochs: 10
 
-  # Neural network
+  grad_clip: 0.5
+  kl_coeff: 0.2
+  kl_target: 0.01
+
   model:
-    fcnet_hiddens: [256, 256, 128]
+    fcnet_hiddens: [128, 128, 64]
     fcnet_activation: "relu"
 
-  # No parallel workers (single browser instance)
   num_workers: 0
   num_envs_per_worker: 1
-
-  # Checkpointing
-  checkpoint_freq: 50
+  checkpoint_freq: 10
   checkpoint_dir: "./checkpoints"
 
+# ==============================================================
 # WebSocket Configuration
+# ==============================================================
 websocket:
   host: "localhost"
   port: 8765
 
+# ==============================================================
 # Training Configuration
+# ==============================================================
 training:
-  total_episodes: 1000
-  eval_frequency: 10
-  log_frequency: 1
+  total_episodes: 5000 # Target number of episodes
+  eval_frequency: 10 # Evaluate every 10 episodes
+  log_frequency: 1 # Log every episode
