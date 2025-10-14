@@ -1,2 +1,67 @@
 node_modules/
 .env
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# RL Training outputs
+checkpoints/
+runs/
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+
+# TensorBoard logs
+events.out.tfevents.*
+tensorboard_logs/
+
+# Ray/RLlib specific
+~/ray_results/
+ray_results/
+/tmp/ray/
+
+# Mac specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Node modules (for frontend)
+node_modules/
+package-lock.json
+
+# Chrome/Browser testing
+*.crdownload
