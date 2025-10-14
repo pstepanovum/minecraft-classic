@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 
 class GameWebSocketServer:
-    def __init__(self, host: str = "localhost", port: int = 8765):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8765):
         self.host = host
         self.port = port
         self.websocket = None
