@@ -37,7 +37,7 @@ export const NPC = {
   HIDE_AND_SEEK: {
     seekerCount: 1,
     hiderCount: 2,
-    gameTimeLimit: 40000, // 40 seconds
+    gameTimeLimit: 90000, // 90 seconds
     countdownTime: 5000, // 5 seconds prep time (seeker can't move)
 
     SEEKER: {

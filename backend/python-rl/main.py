@@ -1,6 +1,6 @@
 """
 FILE: backend/python-rl/main.py
-CHECKPOINT: 2024-06
+Main training entry point with optional checkpoint restoration
 """
 
 import asyncio
@@ -13,7 +13,7 @@ from websocket_server import get_server
 from ppo_trainer import train
 
 
-async def run_server_and_training(config):
+async def run_server_and_training(config, restore_checkpoint=None):
     server = get_server(
         config['websocket']['host'],
         config['websocket']['port']
@@ -25,21 +25,18 @@ async def run_server_and_training(config):
     while not server.connected:
         await asyncio.sleep(0.5)
     
-    print("✅ Client connected, waiting for 'start_training' message...")
+    print("✅ Client connected!")
     
-    # ADDED: Wait for explicit start training message from frontend
-    while True:
-        await asyncio.sleep(0.5)
-        # Check if we received a start signal (you'll need to add this to websocket_server.py)
-        # For now, let's just wait a bit for the frontend to be ready
-        if server.connected:
-            await asyncio.sleep(2)  # Give frontend time to initialize
-            break
+    # Give frontend time to initialize
+    await asyncio.sleep(2)
     
-    print("🚀 Starting training...")
+    if restore_checkpoint:
+        print(f"🔄 Continuing training from checkpoint: {restore_checkpoint}")
+    else:
+        print("🚀 Starting new training session...")
     
     try:
-        train(config)
+        train(config, restore_checkpoint=restore_checkpoint)
     except Exception as e:
         print(f"\n❌ ERROR IN TRAINING:")
         print(f"Error type: {type(e).__name__}")
@@ -78,8 +75,40 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     
+    # Check for checkpoint restoration argument
+    restore_checkpoint = None
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--help' or sys.argv[1] == '-h':
+            print("\n" + "="*60)
+            print("PPO Training - Minecraft Hide and Seek")
+            print("="*60)
+            print("\nUsage:")
+            print("  python main.py                    # Start new training")
+            print("  python main.py <checkpoint_path>  # Continue from checkpoint")
+            print("\nExamples:")
+            print("  python main.py")
+            print("  python main.py ./checkpoints/checkpoint_000050")
+            print("\nUtility Scripts:")
+            print("  python list_checkpoints.py        # View all checkpoints")
+            print("  python continue_training.py <checkpoint>  # Continue training")
+            print("  python demo_model.py              # Watch trained agents play")
+            print("="*60 + "\n")
+            sys.exit(0)
+        
+        # Assume it's a checkpoint path
+        checkpoint_arg = sys.argv[1]
+        checkpoint_path = Path(checkpoint_arg)
+        
+        if not checkpoint_path.exists():
+            print(f"❌ ERROR: Checkpoint not found: {checkpoint_path}")
+            sys.exit(1)
+        
+        restore_checkpoint = str(checkpoint_path)
+        print(f"📂 Will restore from: {restore_checkpoint}")
+    
     try:
-        asyncio.run(run_server_and_training(config))
+        asyncio.run(run_server_and_training(config, restore_checkpoint))
     except KeyboardInterrupt:
         print("\n⚠️ Interrupted by user (Ctrl+C)")
     except Exception as e:

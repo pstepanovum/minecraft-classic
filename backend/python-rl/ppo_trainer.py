@@ -1,6 +1,6 @@
 """
 FILE: backend/python-rl/ppo_trainer.py
-Ray 2.50.0 Compatible
+Ray 2.50.0 Compatible - Complete Checkpoint Management
 """
 
 import ray
@@ -10,6 +10,9 @@ from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import os
 import numpy as np
+import shutil
+from pathlib import Path
+from collections import deque
 
 # ADDED: For visualization
 import matplotlib.pyplot as plt
@@ -64,6 +67,148 @@ class RLlibMinecraftEnv(MultiAgentEnv):
     
     def close(self):
         self.env.close()
+
+
+class CheckpointManager:
+    """Manages checkpoint saving, loading, and cleanup for Ray 2.50.0"""
+    
+    def __init__(self, checkpoint_dir, keep_last_n=10):
+        """
+        Args:
+            checkpoint_dir: Base directory for checkpoints
+            keep_last_n: Number of recent checkpoints to keep (0 = keep all)
+        """
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.keep_last_n = keep_last_n
+        self.checkpoint_history = []
+        
+        # Load existing checkpoint history
+        self._load_checkpoint_index()
+    
+    def _load_checkpoint_index(self):
+        """Load the index of existing checkpoints"""
+        index_file = self.checkpoint_dir / "checkpoint_index.json"
+        if index_file.exists():
+            with open(index_file, 'r') as f:
+                data = json.load(f)
+                self.checkpoint_history = data.get('checkpoints', [])
+                print(f"📂 Loaded {len(self.checkpoint_history)} existing checkpoints")
+    
+    def _save_checkpoint_index(self):
+        """Save the checkpoint index"""
+        index_file = self.checkpoint_dir / "checkpoint_index.json"
+        with open(index_file, 'w') as f:
+            json.dump({
+                'checkpoints': self.checkpoint_history,
+                'last_updated': datetime.now().isoformat()
+            }, f, indent=2)
+    
+    def save_checkpoint(self, trainer, iteration, metrics=None):
+        """
+        Save a checkpoint with versioning and metadata
+        
+        Args:
+            trainer: Ray RLlib trainer/algorithm instance
+            iteration: Current training iteration
+            metrics: Optional dict of metrics to save
+            
+        Returns:
+            Path to saved checkpoint
+        """
+        # Create checkpoint subdirectory
+        checkpoint_name = f"checkpoint_{iteration:06d}"
+        checkpoint_path = self.checkpoint_dir / checkpoint_name
+        
+        print(f"💾 Saving checkpoint: {checkpoint_name}")
+        
+        # Ray 2.50.0: trainer.save() returns the checkpoint directory path
+        saved_path = trainer.save(checkpoint_path)
+        
+        # Handle both string and Checkpoint object returns
+        if hasattr(saved_path, 'path'):
+            saved_path = saved_path.path
+        saved_path = str(saved_path)
+        
+        # Save metadata
+        metadata = {
+            'iteration': iteration,
+            'timestamp': datetime.now().isoformat(),
+            'checkpoint_path': saved_path,
+        }
+        
+        if metrics:
+            metadata.update(metrics)
+        
+        metadata_file = checkpoint_path / "metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Update checkpoint history
+        self.checkpoint_history.append({
+            'iteration': iteration,
+            'path': checkpoint_name,
+            'timestamp': metadata['timestamp']
+        })
+        
+        # Save updated index
+        self._save_checkpoint_index()
+        
+        # Cleanup old checkpoints if needed
+        if self.keep_last_n > 0:
+            self._cleanup_old_checkpoints()
+        
+        print(f"✅ Checkpoint saved: {checkpoint_name}")
+        return saved_path
+    
+    def _cleanup_old_checkpoints(self):
+        """Remove old checkpoints, keeping only the last N"""
+        if len(self.checkpoint_history) <= self.keep_last_n:
+            return
+        
+        # Determine which checkpoints to delete
+        to_delete = self.checkpoint_history[:-self.keep_last_n]
+        
+        for checkpoint_info in to_delete:
+            checkpoint_path = self.checkpoint_dir / checkpoint_info['path']
+            if checkpoint_path.exists():
+                shutil.rmtree(checkpoint_path)
+                print(f"🗑️  Deleted old checkpoint: {checkpoint_info['path']}")
+        
+        # Update history
+        self.checkpoint_history = self.checkpoint_history[-self.keep_last_n:]
+        self._save_checkpoint_index()
+    
+    def get_latest_checkpoint(self):
+        """Get the path to the most recent checkpoint"""
+        if not self.checkpoint_history:
+            return None
+        
+        latest = self.checkpoint_history[-1]
+        return str(self.checkpoint_dir / latest['path'])
+    
+    def get_checkpoint_by_iteration(self, iteration):
+        """Get checkpoint path for a specific iteration"""
+        for cp in self.checkpoint_history:
+            if cp['iteration'] == iteration:
+                return str(self.checkpoint_dir / cp['path'])
+        return None
+    
+    def list_checkpoints(self):
+        """List all available checkpoints with metadata"""
+        checkpoints = []
+        for cp_info in self.checkpoint_history:
+            cp_path = self.checkpoint_dir / cp_info['path']
+            metadata_file = cp_path / "metadata.json"
+            
+            if metadata_file.exists():
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                checkpoints.append(metadata)
+            else:
+                checkpoints.append(cp_info)
+        
+        return checkpoints
 
 
 def plot_training_metrics(metrics_history, checkpoint_dir, iteration):
@@ -176,7 +321,17 @@ def plot_training_metrics(metrics_history, checkpoint_dir, iteration):
     print(f"📊 Plot saved: {plot_path}")
 
 
-def create_ppo_trainer(config):
+def create_ppo_trainer(config, restore_path=None):
+    """
+    Create PPO trainer with optional checkpoint restoration
+    
+    Args:
+        config: Training configuration dict
+        restore_path: Optional path to checkpoint for restoration
+        
+    Returns:
+        Tuple of (trainer, log_dir)
+    """
     ppo_config = config['ppo']
     
     def policy_mapping_fn(agent_id, episode, worker, **kwargs):
@@ -272,6 +427,12 @@ def create_ppo_trainer(config):
         config, log_dir, loggers=None
     ))
     
+    # Restore from checkpoint if provided
+    if restore_path:
+        print(f"📂 Restoring from checkpoint: {restore_path}")
+        trainer.restore(restore_path)
+        print(f"✅ Checkpoint restored successfully")
+    
     print(f"\n{'='*60}")
     print(f"✅ PPO TRAINER CONFIGURED (Ray 2.50.0)")
     print(f"{'='*60}")
@@ -287,17 +448,31 @@ def create_ppo_trainer(config):
     return trainer, log_dir
 
 
-def train(config):
+def train(config, restore_checkpoint=None):
+    """
+    Main training function with checkpoint management
+    
+    Args:
+        config: Training configuration dict
+        restore_checkpoint: Optional checkpoint path to continue training
+    """
     if not ray.is_initialized():
         ray.init(ignore_reinit_error=True)
     
-    trainer, log_dir = create_ppo_trainer(config)
+    # Create trainer (with optional restoration)
+    trainer, log_dir = create_ppo_trainer(config, restore_checkpoint)
     
     total_episodes = config['training']['total_episodes']
     eval_freq = config['training']['eval_frequency']
     log_freq = config['training']['log_frequency']
     checkpoint_freq = config['ppo']['checkpoint_freq']
     checkpoint_dir = config['ppo']['checkpoint_dir']
+    
+    # Initialize checkpoint manager
+    checkpoint_manager = CheckpointManager(
+        checkpoint_dir,
+        keep_last_n=10  # Keep last 10 checkpoints
+    )
     
     # Calculate training iterations
     train_batch_size = config['ppo']['train_batch_size']
@@ -309,6 +484,18 @@ def train(config):
     if total_episodes % episodes_per_iteration != 0:
         training_iterations += 1
     
+    # Determine starting iteration if restoring
+    start_iteration = 1
+    if restore_checkpoint:
+        # Try to extract iteration from checkpoint path
+        checkpoint_path = Path(restore_checkpoint)
+        if 'checkpoint_' in checkpoint_path.name:
+            try:
+                start_iteration = int(checkpoint_path.name.split('_')[1]) + 1
+                print(f"🔄 Continuing from iteration {start_iteration}")
+            except:
+                pass
+    
     print(f"\n{'='*60}")
     print(f"🎯 PPO TRAINING CONFIGURATION")
     print(f"{'='*60}")
@@ -317,20 +504,35 @@ def train(config):
     print(f"Max steps per episode: {max_steps}")
     print(f"Episodes per training iteration: ~{episodes_per_iteration}")
     print(f"Total training iterations: {training_iterations}")
+    print(f"Starting from iteration: {start_iteration}")
     print(f"Checkpoint frequency: Every {checkpoint_freq} iterations")
+    print(f"Checkpoint retention: Last 10 checkpoints")
     print(f"TensorBoard logdir: {log_dir}")
     print(f"{'='*60}")
     print(f"🚀 Start TensorBoard with: tensorboard --logdir runs")
     print(f"📊 View at: http://localhost:6006/")
     print(f"{'='*60}\n")
     
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    
     # Metrics history for plotting
     metrics_history = []
     
+    # Load existing metrics if continuing training
+    if restore_checkpoint:
+        checkpoint_path = Path(restore_checkpoint)
+        parent_dir = checkpoint_path.parent
+        
+        # Try to find existing metrics
+        for metrics_file in sorted(parent_dir.glob("metrics_iter_*.json")):
+            try:
+                with open(metrics_file, 'r') as f:
+                    metrics_history = json.load(f)
+                print(f"📊 Loaded {len(metrics_history)} previous metrics entries")
+                break
+            except:
+                pass
+    
     try:
-        for iteration in range(1, training_iterations + 1):
+        for iteration in range(start_iteration, training_iterations + 1):
             print(f"\n{'─'*60}")
             print(f"🔄 Training Iteration {iteration}/{training_iterations}")
             print(f"{'─'*60}")
@@ -394,10 +596,23 @@ def train(config):
                 print(f"   Seeker reward: {seeker_reward:.2f} | KL: {seeker_kl:.6f} | Entropy: {seeker_entropy:.4f}")
                 print(f"   Hider reward: {hider_reward:.2f} | KL: {hider_kl:.6f} | Entropy: {hider_entropy:.4f}")
             
-            # Save checkpoint with plots
+            # Save checkpoint with plots using checkpoint manager
             if iteration % checkpoint_freq == 0:
-                checkpoint_path = trainer.save(checkpoint_dir)
-                print(f"💾 Checkpoint saved: {checkpoint_path}")
+                # Prepare checkpoint metrics
+                checkpoint_metrics = {
+                    'reward_mean': episode_reward_mean,
+                    'seeker_reward': seeker_reward,
+                    'hider_reward': hider_reward,
+                    'episode_len_mean': episode_len_mean,
+                    'episodes_completed': actual_episodes_completed
+                }
+                
+                # Save checkpoint
+                checkpoint_path = checkpoint_manager.save_checkpoint(
+                    trainer, 
+                    iteration, 
+                    checkpoint_metrics
+                )
                 
                 # Generate and save plots
                 plot_training_metrics(metrics_history, checkpoint_dir, iteration)
@@ -412,8 +627,20 @@ def train(config):
         print(f"✅ TRAINING COMPLETE!")
         print(f"{'='*60}")
         
-        final_checkpoint = trainer.save(checkpoint_dir)
-        print(f"💾 Final checkpoint saved: {final_checkpoint}")
+        # Final checkpoint
+        final_metrics = {
+            'reward_mean': episode_reward_mean,
+            'seeker_reward': seeker_reward,
+            'hider_reward': hider_reward,
+            'episode_len_mean': episode_len_mean,
+            'episodes_completed': training_iterations * episodes_per_iteration,
+            'final': True
+        }
+        final_checkpoint = checkpoint_manager.save_checkpoint(
+            trainer,
+            training_iterations,
+            final_metrics
+        )
         
         # Final plots
         plot_training_metrics(metrics_history, checkpoint_dir, training_iterations)
@@ -429,8 +656,13 @@ def train(config):
         
     except KeyboardInterrupt:
         print(f"\n⚠️ Training interrupted by user")
-        checkpoint_path = trainer.save(checkpoint_dir)
-        print(f"💾 Checkpoint saved: {checkpoint_path}")
+        
+        # Save checkpoint on interrupt
+        interrupt_metrics = {
+            'reward_mean': episode_reward_mean,
+            'interrupted': True
+        }
+        checkpoint_manager.save_checkpoint(trainer, iteration, interrupt_metrics)
         
         # Save plots and metrics on interrupt
         plot_training_metrics(metrics_history, checkpoint_dir, iteration)

@@ -15,7 +15,7 @@ environment:
     place_block: [0.0, 1.0]
     remove_block: [0.0, 1.0]
 
-  max_steps: 150
+  max_steps: 1200
 
   rewards:
     seeker_visibility: 1.0 # +1 per visible hider

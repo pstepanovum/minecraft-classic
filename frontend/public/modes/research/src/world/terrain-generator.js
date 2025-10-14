@@ -80,7 +80,7 @@ export async function regenerateTerrain(chunkManager) {
     return;
   }
 
-  const USE_SAME_SEED = true; // Use a consistent seed for reproducibility
+  const USE_SAME_SEED = false; // Use a consistent seed for reproducibility
   const seed = USE_SAME_SEED ? 42 : Math.floor(Math.random() * 1000000);
 
   console.log(`🌍 Regenerating terrain with seed ${seed}...`);

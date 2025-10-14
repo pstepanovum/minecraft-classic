@@ -47,6 +47,35 @@ export class PPOTrainingBridge {
     this.simulatedTime = 0;
   }
 
+  // ============================================================
+  // REWARD CONFIGURATION
+  // ============================================================
+  REWARD_CONFIG = {
+    // Seeker rewards (per step)
+    SEEKER_SEES_HIDER: 10.0,        // Per visible hider
+    SEEKER_CLOSE_BONUS: 5.0,        // Max bonus for being close
+    SEEKER_VERY_CLOSE: 3.0,         // Bonus when <10 units away
+    SEEKER_EXPLORATION: 0.5,        // Per new cell visited
+    SEEKER_STATIONARY_PENALTY: -1.0, // For standing still
+    
+    // Hider rewards (per step)
+    HIDER_SEEN_PENALTY: -5.0,       // When visible to seeker
+    HIDER_DISTANCE_REWARD: 3.0,     // Max bonus for staying far
+    HIDER_PANIC_PENALTY: -5.0,      // For freezing when seeker close
+    HIDER_ESCAPE_BONUS: 2.0,        // For moving when seeker close
+    HIDER_STATIONARY_PENALTY: -0.1, // For staying still when safe
+    
+    // Time penalty
+    TIME_PENALTY: -0.001,
+    
+    // End-of-episode bonuses
+    SEEKER_SUCCESS: 100.0,          // All hiders caught
+    SEEKER_FAILURE: -30.0,          // Time ran out
+    SEEKER_PARTIAL: 50.0,           // Per hider caught
+    HIDER_SURVIVAL: 50.0,           // Survived
+    HIDER_CAUGHT: -50.0,            // Got caught
+  };
+
   async connect() {
     try {
       await this.wsClient.connect();
@@ -191,7 +220,6 @@ export class PPOTrainingBridge {
     this.hideSeekManager.gameStartTime =
       startTime + this.hideSeekManager.countdownTime;
 
-    // ADD THIS LOG:
     console.log(`⏰ Episode ${episodeNum} timing:`, {
       simulatedTime: this.simulatedTime,
       countdownStartTime: this.hideSeekManager.countdownStartTime,
@@ -230,7 +258,7 @@ export class PPOTrainingBridge {
       });
     }
 
-    const FRAMES_PER_STEP = 20;
+    const FRAMES_PER_STEP = 5;
     const deltaTime = 1.0 / 60.0;
     const frameDelay = this.DEBUG_MODE ? 16 : 0;
 
@@ -259,7 +287,7 @@ export class PPOTrainingBridge {
         }
       }
 
-      // ADDED: Debug logging every 10 steps
+      // Debug logging every 10 steps
       if (this.currentStep % 10 === 0) {
         const elapsedTime = this.simulatedTime - this.episodeStartTime;
         const gameState = this.hideSeekManager.getGameStatus();
@@ -274,7 +302,7 @@ export class PPOTrainingBridge {
       Date.now = originalDateNow;
     }
 
-    // ADDED: Force game end if conditions met
+    // Force game end if conditions met
     const gameState = this.hideSeekManager.getGameStatus();
     const elapsedTime = this.simulatedTime - this.episodeStartTime;
     const totalGameTime =
@@ -387,10 +415,6 @@ export class PPOTrainingBridge {
     return stepResult;
   }
 
-  // ============================================================
-  // REWARD CALCULATION
-  // ============================================================
-
   calculateReward(npc, visionData, gameState) {
     let reward = 0;
 
@@ -399,11 +423,13 @@ export class PPOTrainingBridge {
     }
 
     if (npc.role === "seeker") {
+      // Visibility reward
       const visibleHiders = visionData.visibleNPCs.filter(
         (n) => n.role === "hider"
       );
-      reward += visibleHiders.length * 1.0; // REDUCED from 2.0
+      reward += visibleHiders.length * this.REWARD_CONFIG.SEEKER_SEES_HIDER;
 
+      // Distance rewards
       const hiders = this.npcSystem.npcs.filter(
         (n) => n.role === "hider" && n.hideSeekState !== NPC.GAME_STATES.FOUND
       );
@@ -413,43 +439,77 @@ export class PPOTrainingBridge {
           ...hiders.map((h) => npc.position.distanceTo(h.position))
         );
 
-        // REDUCED distance reward
-        reward += Math.max(0, 0.5 * (1.0 - closestDist / 50)); // Was 2.0
+        reward += Math.max(
+          0, 
+          this.REWARD_CONFIG.SEEKER_CLOSE_BONUS * (1.0 - closestDist / 50)
+        );
+        
+        if (closestDist < 10) {
+          reward += this.REWARD_CONFIG.SEEKER_VERY_CLOSE;
+        }
       }
 
+      // Exploration reward
       const cellKey = `${Math.floor(npc.position.x)},${Math.floor(
         npc.position.z
       )}`;
       if (!npc.explorationCells.has(cellKey)) {
         npc.explorationCells.add(cellKey);
-        reward += 0.02; // REDUCED from 0.05
+        reward += this.REWARD_CONFIG.SEEKER_EXPLORATION;
       }
+      
+      // Movement penalty
+      const horizontalSpeed = Math.sqrt(
+        npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
+      );
+      if (horizontalSpeed < 0.5) {
+        reward += this.REWARD_CONFIG.SEEKER_STATIONARY_PENALTY;
+      }
+      
     } else if (npc.role === "hider") {
+      // Visibility penalty
       const seekers = this.npcSystem.npcs.filter((n) => n.role === "seeker");
       const seenByAny = this.visionSystem.isVisibleToAny(npc, seekers);
 
       if (seenByAny) {
-        reward -= 1.0; // REDUCED from 2.0
+        reward += this.REWARD_CONFIG.HIDER_SEEN_PENALTY;
       }
 
+      // Distance reward
       if (seekers.length > 0) {
         const closestDist = Math.min(
           ...seekers.map((s) => npc.position.distanceTo(s.position))
         );
 
-        // REDUCED distance reward
-        reward += Math.min(0.5, 0.5 * (closestDist / 50)); // Was 2.0
+        reward += Math.min(
+          this.REWARD_CONFIG.HIDER_DISTANCE_REWARD,
+          this.REWARD_CONFIG.HIDER_DISTANCE_REWARD * (closestDist / 50)
+        );
+        
+        // Panic mode
+        if (closestDist < 15) {
+          const horizontalSpeed = Math.sqrt(
+            npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
+          );
+          
+          if (horizontalSpeed < 0.3) {
+            reward += this.REWARD_CONFIG.HIDER_PANIC_PENALTY;
+          } else {
+            reward += this.REWARD_CONFIG.HIDER_ESCAPE_BONUS;
+          }
+        }
       }
 
+      // Light stationary penalty
       const horizontalSpeed = Math.sqrt(
         npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
       );
       if (horizontalSpeed < 0.1) {
-        reward -= 0.05; // REDUCED from 0.1
+        reward += this.REWARD_CONFIG.HIDER_STATIONARY_PENALTY;
       }
     }
 
-    reward -= 0.0001; // REDUCED time penalty
+    reward += this.REWARD_CONFIG.TIME_PENALTY;
 
     return reward;
   }
@@ -467,7 +527,6 @@ export class PPOTrainingBridge {
     );
     console.log(`   All caught: ${allHidersFound}`);
 
-    // ✅ ADDED: Store caught state BEFORE it might be cleared
     const caughtHiders = new Set();
     hiders.forEach((hider) => {
       if (hider.hideSeekState === NPC.GAME_STATES.FOUND) {
@@ -483,14 +542,15 @@ export class PPOTrainingBridge {
 
       if (isSeeker) {
         if (allHidersFound) {
-          bonus = 50.0;
+          bonus = this.REWARD_CONFIG.SEEKER_SUCCESS;
           console.log(`   🦊 ${npc.userData.id}: All caught! Bonus: +${bonus}`);
         } else {
-          bonus = -20.0;
+          bonus = this.REWARD_CONFIG.SEEKER_FAILURE;
           console.log(`   🦊 ${npc.userData.id}: Failed. Penalty: ${bonus}`);
         }
 
-        const partialBonus = this.hideSeekManager.hidersFound * 30.0;
+        const partialBonus = 
+          this.hideSeekManager.hidersFound * this.REWARD_CONFIG.SEEKER_PARTIAL;
         bonus += partialBonus;
         if (partialBonus > 0) {
           console.log(
@@ -498,14 +558,13 @@ export class PPOTrainingBridge {
           );
         }
       } else if (isHider) {
-        // ✅ CHANGED: Check the stored caught state instead
         const wasCaught = caughtHiders.has(npc.userData.id);
 
         if (!wasCaught) {
-          bonus = 50.0;
+          bonus = this.REWARD_CONFIG.HIDER_SURVIVAL;
           console.log(`   🐔 ${npc.userData.id}: Survived! Bonus: +${bonus}`);
         } else {
-          bonus = -20.0;
+          bonus = this.REWARD_CONFIG.HIDER_CAUGHT;
           console.log(`   🐔 ${npc.userData.id}: Caught! Penalty: ${bonus}`);
         }
       }
@@ -565,7 +624,7 @@ export class PPOTrainingBridge {
     const gameStatus = this.hideSeekManager.getGameStatus();
     const done = gameStatus.state === NPC.GAME_STATES.GAME_OVER;
 
-    // ADDED: Debug logging
+    // Debug logging
     if (this.currentStep % 10 === 0 || done) {
       console.log(`🔍 Episode done check (step ${this.currentStep}):`, {
         state: gameStatus.state,

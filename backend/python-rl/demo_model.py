@@ -1,15 +1,119 @@
 """
 FILE: backend/python-rl/demo_model.py
-Demo mode - watch trained agents play
+Demo mode - watch trained agents play with checkpoint selection
 """
 
 import asyncio
 import yaml
 import sys
 from pathlib import Path
+import json
 
 from websocket_server import get_server
 from ppo_trainer import create_ppo_trainer
+
+
+def select_checkpoint(checkpoint_base_dir):
+    """
+    Interactive checkpoint selection
+    
+    Returns:
+        Path to selected checkpoint or None
+    """
+    checkpoint_base = Path(checkpoint_base_dir)
+    
+    if not checkpoint_base.exists():
+        print(f"❌ Checkpoint directory not found: {checkpoint_base}")
+        return None
+    
+    # Load checkpoint index
+    index_file = checkpoint_base / "checkpoint_index.json"
+    
+    if index_file.exists():
+        with open(index_file, 'r') as f:
+            data = json.load(f)
+            checkpoints = data.get('checkpoints', [])
+    else:
+        # Fallback: scan directory
+        checkpoints = []
+        for cp_dir in sorted(checkpoint_base.glob("checkpoint_*")):
+            if cp_dir.is_dir():
+                # Try to extract iteration
+                try:
+                    iteration = int(cp_dir.name.split('_')[1])
+                    checkpoints.append({
+                        'iteration': iteration,
+                        'path': cp_dir.name
+                    })
+                except:
+                    pass
+    
+    if not checkpoints:
+        print(f"❌ No checkpoints found in {checkpoint_base}")
+        return None
+    
+    # Display available checkpoints
+    print(f"\n{'='*60}")
+    print(f"📂 Available Checkpoints ({len(checkpoints)} found)")
+    print(f"{'='*60}")
+    
+    # Show last 15 checkpoints
+    display_checkpoints = checkpoints[-15:]
+    
+    for i, cp in enumerate(display_checkpoints, 1):
+        iteration = cp.get('iteration', '?')
+        cp_path = checkpoint_base / cp['path']
+        
+        # Try to load metadata
+        metadata_file = cp_path / "metadata.json"
+        extra_info = ""
+        
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                    reward = metadata.get('reward_mean', 0)
+                    timestamp = metadata.get('timestamp', '')
+                    if timestamp:
+                        timestamp = timestamp.split('T')[0]  # Just date
+                    extra_info = f" | Reward: {reward:.2f} | {timestamp}"
+            except:
+                pass
+        
+        print(f"  {i:2d}. Iteration {iteration:6d} {extra_info}")
+    
+    print(f"\nOptions:")
+    print(f"  • Enter number (1-{len(display_checkpoints)}) to select checkpoint")
+    print(f"  • Press Enter to use latest checkpoint")
+    print(f"  • Type 'q' to quit")
+    
+    choice = input(f"\nSelect checkpoint: ").strip()
+    
+    if choice.lower() == 'q':
+        return None
+    
+    if choice == '':
+        # Use latest
+        latest = checkpoints[-1]
+        checkpoint_path = checkpoint_base / latest['path']
+        print(f"\n✅ Using latest checkpoint: {latest['path']}")
+        return str(checkpoint_path)
+    
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(display_checkpoints):
+            # Adjust for display offset
+            actual_idx = len(checkpoints) - len(display_checkpoints) + idx
+            selected = checkpoints[actual_idx]
+            checkpoint_path = checkpoint_base / selected['path']
+            print(f"\n✅ Selected: {selected['path']}")
+            return str(checkpoint_path)
+        else:
+            print(f"❌ Invalid selection")
+            return None
+    except ValueError:
+        print(f"❌ Invalid input")
+        return None
 
 
 async def run_demo(config, checkpoint_path):
@@ -34,8 +138,7 @@ async def run_demo(config, checkpoint_path):
     print(f"📂 Loading checkpoint: {checkpoint_path}")
     
     # Load trained model
-    trainer = create_ppo_trainer(config)
-    trainer.restore(checkpoint_path)
+    trainer, _ = create_ppo_trainer(config, restore_path=checkpoint_path)
     
     print(f"✅ Model loaded successfully!")
     print(f"🎮 Demo mode active - watching trained agents\n")
@@ -65,6 +168,8 @@ async def run_demo(config, checkpoint_path):
             step = 0
             done = False
             total_reward = 0
+            seeker_reward = 0
+            hider_rewards = []
             
             while not done:
                 step += 1
@@ -132,21 +237,33 @@ async def run_demo(config, checkpoint_path):
                 # Update rewards
                 if 'agents' in obs_data:
                     for agent_data in obs_data['agents']:
-                        total_reward += agent_data.get('reward', 0)
+                        reward = agent_data.get('reward', 0)
+                        total_reward += reward
+                        
+                        agent_id = agent_data['id']
+                        if 'seeker' in agent_id:
+                            seeker_reward += reward
+                        else:
+                            hider_rewards.append(reward)
                 
                 # Check if done
                 done = obs_data.get('episode_done', False)
                 
                 # Log progress
-                if step % 10 == 0:
-                    print(f"   Step {step}...")
+                if step % 20 == 0:
+                    print(f"   Step {step} | Total Reward: {total_reward:.2f}")
             
-            print(f"✅ Episode {episode} complete!")
+            # Episode summary
+            hider_avg = sum(hider_rewards) / len(hider_rewards) if hider_rewards else 0
+            
+            print(f"\n✅ Episode {episode} complete!")
             print(f"   Total steps: {step}")
             print(f"   Total reward: {total_reward:.2f}")
+            print(f"   Seeker reward: {seeker_reward:.2f}")
+            print(f"   Hider avg reward: {hider_avg:.2f}")
             
             # Short pause before next episode
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
     
     except KeyboardInterrupt:
         print(f"\n\n⚠️ Demo stopped by user")
@@ -173,14 +290,21 @@ def main():
         print(f"❌ Failed to load config: {e}")
         sys.exit(1)
     
-    checkpoint_path = str(Path(__file__).parent / "checkpoints")
+    checkpoint_base = Path(__file__).parent / "checkpoints"
     
     print(f"\n{'='*60}")
     print(f"🎮 DEMO MODE - Trained Model Playback")
     print(f"{'='*60}")
-    print(f"Checkpoint: {checkpoint_path}")
+    print(f"Checkpoint directory: {checkpoint_base}")
     print(f"WebSocket: {config['websocket']['host']}:{config['websocket']['port']}")
-    print(f"{'='*60}\n")
+    print(f"{'='*60}")
+    
+    # Select checkpoint
+    checkpoint_path = select_checkpoint(checkpoint_base)
+    
+    if not checkpoint_path:
+        print("\n❌ No checkpoint selected. Exiting.")
+        sys.exit(1)
     
     try:
         asyncio.run(run_demo(config, checkpoint_path))

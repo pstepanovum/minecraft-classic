@@ -172,72 +172,103 @@ class NPCSystem {
     const playerPos = GameState.player.position;
     const { min, max } = this.settings.spawnDistance;
 
-    for (let attempts = 0; attempts < 50; attempts++) {
+    for (let attempts = 0; attempts < 100; attempts++) {  // Increased from 50
       const distance = min + Math.random() * (max - min);
       const angle = Math.random() * Math.PI * 2;
 
       const x = playerPos.x + Math.cos(angle) * distance;
       const z = playerPos.z + Math.sin(angle) * distance;
-      const y = this.findGroundLevel(x, z);
+      const groundY = this.findGroundLevel(x, z);
 
-      if (y > 0) {
-        const spawnPos = new THREE.Vector3(x, y, z);
+      if (groundY > 0) {
+        // ✅ ADDED: Spawn with buffer above ground
+        const spawnY = groundY + 0.5;  // Half block above ground for safety
+        const spawnPos = new THREE.Vector3(x, spawnY, z);
+        
+        // ✅ IMPROVED: Check more headroom (NPC is 1.7 blocks tall)
+        const hasHeadroom = this.checkHeadroom(spawnPos, 2.0);
         const collision = NPCPhysics.checkNPCCollision(spawnPos, this.scene);
-        if (!collision.collides) {
+        
+        if (!collision.collides && hasHeadroom) {
           const tooCloseToOthers = this.npcs.some((npc) => {
             const dist = npc.position.distanceTo(spawnPos);
             return dist < this.settings.minNPCDistance;
           });
 
           if (!tooCloseToOthers) {
-            return { x, y, z };
+            console.log(`✅ Valid spawn found at (${x.toFixed(1)}, ${spawnY.toFixed(1)}, ${z.toFixed(1)})`);
+            return { x, y: spawnY, z };
           }
         }
       }
     }
 
+    // ✅ IMPROVED: Better fallback with actual ground detection
+    console.warn("⚠️ Using fallback spawn position");
     const fallbackAngle = Math.random() * Math.PI * 2;
     const fallbackDist = 15;
-
+    const fallbackX = playerPos.x + Math.cos(fallbackAngle) * fallbackDist;
+    const fallbackZ = playerPos.z + Math.sin(fallbackAngle) * fallbackDist;
+    const fallbackY = this.findGroundLevel(fallbackX, fallbackZ);
+    
+    if (fallbackY > 0) {
+      return {
+        x: fallbackX,
+        y: fallbackY + 1.0,  // 1 block above ground for safety
+        z: fallbackZ,
+      };
+    }
+    
+    // ✅ LAST RESORT: Use world center at high altitude
+    console.error("❌ Could not find valid spawn! Using world center");
+    const worldSize = TRAINING_WORLD_CONFIG.SIZE;
     return {
-      x: playerPos.x + Math.cos(fallbackAngle) * fallbackDist,
-      y: playerPos.y + 5,
-      z: playerPos.z + Math.sin(fallbackAngle) * fallbackDist,
+      x: worldSize / 2,
+      y: TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 10,
+      z: worldSize / 2,
     };
   }
 
+  checkHeadroom(position, requiredHeight) {
+    const testPos = new THREE.Vector3();
+    
+    for (let y = 0; y <= requiredHeight; y += 0.5) {
+      testPos.copy(position);
+      testPos.y += y;
+      
+      const collision = NPCPhysics.checkNPCCollision(testPos, this.scene);
+      if (collision.collides) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
   findGroundLevel(x, z) {
-    const startY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 20;
+    const startY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 30;
     const testPosition = new THREE.Vector3(x, startY, z);
 
-    for (let y = startY; y > 0; y--) {
+    for (let y = startY; y > 0; y -= 0.5) {
       testPosition.y = y;
       const currentCollision = NPCPhysics.checkNPCCollision(
         testPosition,
         this.scene
       );
 
-      testPosition.y = y - 1;
+      testPosition.y = y - 0.5;
       const belowCollision = NPCPhysics.checkNPCCollision(
         testPosition,
         this.scene
       );
 
-      testPosition.y = y + 1;
-      const aboveCollision = NPCPhysics.checkNPCCollision(
-        testPosition,
-        this.scene
-      );
-
-      if (
-        !currentCollision.collides &&
-        !aboveCollision.collides &&
-        belowCollision.collides
-      ) {
+      // ✅ SIMPLIFIED: Current pos clear, below is solid = ground!
+      if (!currentCollision.collides && belowCollision.collides) {
         return y;
       }
     }
 
+    console.warn(`⚠️ No ground found at (${x.toFixed(1)}, ${z.toFixed(1)})`);
     return -1;
   }
 
