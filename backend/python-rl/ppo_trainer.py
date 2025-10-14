@@ -1,6 +1,6 @@
 """
 FILE: backend/python-rl/ppo_trainer.py
-DOCKER VERSION - Ray 2.8.0 Compatible
+Ray 2.50.0 Compatible
 """
 
 import ray
@@ -185,7 +185,7 @@ def create_ppo_trainer(config):
         else:
             return "hider_policy"
     
-    # ADDED: Create run directory with timestamp (absolute path)
+    # Create run directory with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_dir = os.path.abspath(".")
     log_dir = os.path.join(base_dir, "runs", f"ppo_minecraft_{timestamp}")
@@ -193,9 +193,13 @@ def create_ppo_trainer(config):
     
     print(f"📁 TensorBoard log directory: {log_dir}")
     
-    # DOCKER RAY 2.8.0 COMPATIBLE CONFIG
+    # RAY 2.50.0 COMPATIBLE CONFIG
     trainer_config = (
         PPOConfig()
+        .api_stack(
+            enable_rl_module_and_learner=False,
+            enable_env_runner_and_connector_v2=False
+        )
         .environment(
             env=RLlibMinecraftEnv,
             env_config=config,
@@ -213,10 +217,10 @@ def create_ppo_trainer(config):
             vf_loss_coeff=ppo_config['vf_loss_coeff'],
             entropy_coeff=ppo_config['entropy_coeff'],
             
-            # Batch configuration - RAY 2.8.0 PARAMETER NAMES
+            # Batch configuration - RAY 2.50.0 NEW API
             train_batch_size=ppo_config['train_batch_size'],
-            sgd_minibatch_size=ppo_config['minibatch_size'],  # Ray 2.8.0: sgd_minibatch_size
-            num_sgd_iter=ppo_config['num_epochs'],            # Ray 2.8.0: num_sgd_iter
+            minibatch_size=ppo_config['minibatch_size'],
+            num_epochs=ppo_config['num_epochs'],
             
             # Stability enhancements
             grad_clip=ppo_config.get('grad_clip', 0.5),
@@ -229,9 +233,9 @@ def create_ppo_trainer(config):
                 "fcnet_activation": ppo_config['model']['fcnet_activation'],
             }
         )
-        .rollouts(  # Ray 2.8.0: rollouts() not env_runners()
-            num_rollout_workers=ppo_config['num_workers'],  # Ray 2.8.0: num_rollout_workers
-            num_envs_per_worker=ppo_config['num_envs_per_worker']
+        .env_runners(
+            num_env_runners=ppo_config['num_workers'],
+            num_envs_per_env_runner=ppo_config['num_envs_per_worker']
         )
         .multi_agent(
             policies={
@@ -263,13 +267,13 @@ def create_ppo_trainer(config):
         )
     )
     
-    # Configure Ray logging directory
-    trainer = trainer_config.build(logger_creator=lambda config: ray.tune.logger.UnifiedLogger(
+    # Build trainer
+    trainer = trainer_config.build_algo(logger_creator=lambda config: ray.tune.logger.UnifiedLogger(
         config, log_dir, loggers=None
     ))
     
     print(f"\n{'='*60}")
-    print(f"✅ PPO TRAINER CONFIGURED")
+    print(f"✅ PPO TRAINER CONFIGURED (Ray 2.50.0)")
     print(f"{'='*60}")
     print(f"📁 Logs directory: {log_dir}")
     print(f"Stability features enabled:")
@@ -281,6 +285,7 @@ def create_ppo_trainer(config):
     print(f"{'='*60}\n")
     
     return trainer, log_dir
+
 
 def train(config):
     if not ray.is_initialized():
@@ -335,10 +340,10 @@ def train(config):
             # Calculate approximate episode count
             actual_episodes_completed = iteration * episodes_per_iteration
             
-            # Extract metrics - Ray 2.8.0 uses different keys
-            episode_reward_mean = result.get('episode_reward_mean', 0)
-            episode_len_mean = result.get('episode_len_mean', 0)
-            episodes_this_iter = result.get('episodes_this_iter', 0)
+            # Extract metrics
+            episode_reward_mean = result.get('env_runners', {}).get('episode_reward_mean', 0)
+            episode_len_mean = result.get('env_runners', {}).get('episode_len_mean', 0)
+            episodes_this_iter = result.get('env_runners', {}).get('episodes_this_iter', 0)
             
             # Extract stability metrics
             info = result.get('info', {})
