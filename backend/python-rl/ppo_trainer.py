@@ -1,5 +1,6 @@
 """
 FILE: backend/python-rl/ppo_trainer.py
+DOCKER VERSION - Ray 2.8.0 Compatible
 """
 
 import ray
@@ -192,12 +193,9 @@ def create_ppo_trainer(config):
     
     print(f"📁 TensorBoard log directory: {log_dir}")
     
+    # DOCKER RAY 2.8.0 COMPATIBLE CONFIG
     trainer_config = (
         PPOConfig()
-        .api_stack(
-            enable_rl_module_and_learner=False,
-            enable_env_runner_and_connector_v2=False
-        )
         .environment(
             env=RLlibMinecraftEnv,
             env_config=config,
@@ -208,19 +206,19 @@ def create_ppo_trainer(config):
             # Learning rate
             lr=ppo_config['lr_seeker'],
             
-            # Core PPO parameters (YOUR ORIGINAL NAMES)
+            # Core PPO parameters
             gamma=ppo_config['gamma'],
             lambda_=ppo_config['lambda'],
             clip_param=ppo_config['clip_param'],
             vf_loss_coeff=ppo_config['vf_loss_coeff'],
             entropy_coeff=ppo_config['entropy_coeff'],
             
-            # Batch configuration (YOUR ORIGINAL NAMES)
+            # Batch configuration - RAY 2.8.0 PARAMETER NAMES
             train_batch_size=ppo_config['train_batch_size'],
-            minibatch_size=ppo_config['minibatch_size'],
-            num_epochs=ppo_config['num_epochs'],
+            sgd_minibatch_size=ppo_config['minibatch_size'],  # Ray 2.8.0: sgd_minibatch_size
+            num_sgd_iter=ppo_config['num_epochs'],            # Ray 2.8.0: num_sgd_iter
             
-            # ADDED: Stability enhancements
+            # Stability enhancements
             grad_clip=ppo_config.get('grad_clip', 0.5),
             kl_coeff=ppo_config.get('kl_coeff', 0.2),
             kl_target=ppo_config.get('kl_target', 0.01),
@@ -231,9 +229,9 @@ def create_ppo_trainer(config):
                 "fcnet_activation": ppo_config['model']['fcnet_activation'],
             }
         )
-        .env_runners(
-            num_env_runners=ppo_config['num_workers'],
-            num_envs_per_env_runner=ppo_config['num_envs_per_worker']
+        .rollouts(  # Ray 2.8.0: rollouts() not env_runners()
+            num_rollout_workers=ppo_config['num_workers'],  # Ray 2.8.0: num_rollout_workers
+            num_envs_per_worker=ppo_config['num_envs_per_worker']
         )
         .multi_agent(
             policies={
@@ -265,9 +263,8 @@ def create_ppo_trainer(config):
         )
     )
     
-    # FIXED: Properly configure Ray logging directory
-    # Ray will automatically create TensorBoard logs here
-    trainer = trainer_config.build_algo(logger_creator=lambda config: ray.tune.logger.UnifiedLogger(
+    # Configure Ray logging directory
+    trainer = trainer_config.build(logger_creator=lambda config: ray.tune.logger.UnifiedLogger(
         config, log_dir, loggers=None
     ))
     
@@ -289,7 +286,7 @@ def train(config):
     if not ray.is_initialized():
         ray.init(ignore_reinit_error=True)
     
-    trainer, log_dir = create_ppo_trainer(config)  # CHANGED: Receive log_dir
+    trainer, log_dir = create_ppo_trainer(config)
     
     total_episodes = config['training']['total_episodes']
     eval_freq = config['training']['eval_frequency']
@@ -316,7 +313,7 @@ def train(config):
     print(f"Episodes per training iteration: ~{episodes_per_iteration}")
     print(f"Total training iterations: {training_iterations}")
     print(f"Checkpoint frequency: Every {checkpoint_freq} iterations")
-    print(f"TensorBoard logdir: {log_dir}")  # ADDED
+    print(f"TensorBoard logdir: {log_dir}")
     print(f"{'='*60}")
     print(f"🚀 Start TensorBoard with: tensorboard --logdir runs")
     print(f"📊 View at: http://localhost:6006/")
@@ -324,7 +321,7 @@ def train(config):
     
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # ADDED: Metrics history for plotting
+    # Metrics history for plotting
     metrics_history = []
     
     try:
@@ -338,12 +335,12 @@ def train(config):
             # Calculate approximate episode count
             actual_episodes_completed = iteration * episodes_per_iteration
             
-            # Extract metrics
-            episode_reward_mean = result.get('env_runners', {}).get('episode_reward_mean', 0)
-            episode_len_mean = result.get('env_runners', {}).get('episode_len_mean', 0)
-            episodes_this_iter = result.get('env_runners', {}).get('episodes_this_iter', 0)
+            # Extract metrics - Ray 2.8.0 uses different keys
+            episode_reward_mean = result.get('episode_reward_mean', 0)
+            episode_len_mean = result.get('episode_len_mean', 0)
+            episodes_this_iter = result.get('episodes_this_iter', 0)
             
-            # ADDED: Extract stability metrics
+            # Extract stability metrics
             info = result.get('info', {})
             learner_info = info.get('learner', {})
             
@@ -369,7 +366,7 @@ def train(config):
                 seeker_reward = policy_reward_mean.get('seeker_policy', 0)
                 hider_reward = policy_reward_mean.get('hider_policy', 0)
             
-            # ADDED: Store metrics for plotting
+            # Store metrics for plotting
             metrics_history.append({
                 'iteration': iteration,
                 'reward_mean': episode_reward_mean,
@@ -392,7 +389,7 @@ def train(config):
                 print(f"   Seeker reward: {seeker_reward:.2f} | KL: {seeker_kl:.6f} | Entropy: {seeker_entropy:.4f}")
                 print(f"   Hider reward: {hider_reward:.2f} | KL: {hider_kl:.6f} | Entropy: {hider_entropy:.4f}")
             
-            # ADDED: Save checkpoint with plots
+            # Save checkpoint with plots
             if iteration % checkpoint_freq == 0:
                 checkpoint_path = trainer.save(checkpoint_dir)
                 print(f"💾 Checkpoint saved: {checkpoint_path}")
@@ -413,7 +410,7 @@ def train(config):
         final_checkpoint = trainer.save(checkpoint_dir)
         print(f"💾 Final checkpoint saved: {final_checkpoint}")
         
-        # ADDED: Final plots
+        # Final plots
         plot_training_metrics(metrics_history, checkpoint_dir, training_iterations)
         
         # Save final metrics
