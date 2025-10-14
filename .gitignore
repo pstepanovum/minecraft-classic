@@ -1,2 +1,82 @@
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# ============================================
+# RL Training (backend/python-rl/)
+# ============================================
+# Training outputs
+backend/python-rl/checkpoints/
+backend/python-rl/runs/
+
+# Model files
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+
+# TensorBoard logs
+events.out.tfevents.*
+
+# Ray/RLlib
+ray_results/
+/tmp/ray/
+
+# ============================================
+# Node.js (frontend/)
+# ============================================
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# ============================================
+# Environment & Secrets
+# ============================================
 .env
+.env.local
+.env.*.local
+
+# ============================================
+# IDEs & Editors
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ============================================
+# OS Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# ============================================
+# Logs & Temp
+# ============================================
+*.log
+logs/
+*.tmp
+*.temp
+.cache/
