@@ -111,7 +111,6 @@ class MinecraftHideSeekEnv(gym.Env):
     def step(self, action_dict: Dict[str, np.ndarray]):
         self.current_step += 1
         
-        # CHANGED: Convert continuous actions to browser format
         browser_actions = {}
         for agent_id, action in action_dict.items():
             browser_actions[agent_id] = {

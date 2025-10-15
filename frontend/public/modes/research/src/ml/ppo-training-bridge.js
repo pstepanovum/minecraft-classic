@@ -9,6 +9,10 @@ import { NPC } from "../npc/config-npc-behavior.js";
 import { regenerateTerrain } from "../world/terrain-generator.js";
 import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
 
+// IMPORT LOGGER
+import sessionManager from "./log/session-manager.js";
+import { PPOTrainingLogger } from "./log/ppo-training-bridge-logger.js";
+
 export class PPOTrainingBridge {
   constructor(npcSystem, hideSeekManager, chunkManager) {
     this.npcSystem = npcSystem;
@@ -18,12 +22,17 @@ export class PPOTrainingBridge {
     this.wsClient = new PPOWebSocketClient();
     this.encoder = new StateEncoder();
     this.encoder.chunkManager = chunkManager;
+    this.logger = new PPOTrainingLogger("http://localhost:3001", {
+      logInterval: 100, // Log every 100 steps
+      enabled: true, // Can be toggled
+      sessionDir: sessionManager.getSessionDir(),
+    });
     this.visionSystem = new NPCVisionSystem({
       visionRange: NPC.VISION.visionRange,
       visionAngle: NPC.VISION.visionAngle,
       rayCount: NPC.VISION.rayCount,
-      rayAngleTolerance: NPC.VISION.rayAngleTolerance || 0.996,
-      debug: false, // Always false for training
+      rayAngleTolerance: NPC.VISION.rayAngleTolerance,
+      debug: false,
     });
 
     if (chunkManager) {
@@ -42,7 +51,7 @@ export class PPOTrainingBridge {
     this.currentVisionCache = null;
 
     // Debug mode
-    this.DEBUG_MODE = false; // Set to true to see visual training
+    this.DEBUG_MODE = true; // Set to true to see visual training
     this.episodeStartTime = 0;
     this.simulatedTime = 0;
   }
@@ -52,35 +61,34 @@ export class PPOTrainingBridge {
   // ============================================================
   REWARD_CONFIG = {
     // Seeker rewards (per step)
-    SEEKER_SEES_HIDER: 10.0,        // Per visible hider
-    SEEKER_CLOSE_BONUS: 5.0,        // Max bonus for being close
-    SEEKER_VERY_CLOSE: 3.0,         // Bonus when <10 units away
-    SEEKER_EXPLORATION: 0.5,        // Per new cell visited
+    SEEKER_SEES_HIDER: 10.0, // Per visible hider
+    SEEKER_CLOSE_BONUS: 5.0, // Max bonus for being close
+    SEEKER_VERY_CLOSE: 3.0, // Bonus when <10 units away
+    SEEKER_EXPLORATION: 0.5, // Per new cell visited
     SEEKER_STATIONARY_PENALTY: -1.0, // For standing still
-    
+
     // Hider rewards (per step)
-    HIDER_SEEN_PENALTY: -5.0,       // When visible to seeker
-    HIDER_DISTANCE_REWARD: 3.0,     // Max bonus for staying far
-    HIDER_PANIC_PENALTY: -5.0,      // For freezing when seeker close
-    HIDER_ESCAPE_BONUS: 2.0,        // For moving when seeker close
+    HIDER_SEEN_PENALTY: -5.0, // When visible to seeker
+    HIDER_DISTANCE_REWARD: 3.0, // Max bonus for staying far
+    HIDER_PANIC_PENALTY: -5.0, // For freezing when seeker close
+    HIDER_ESCAPE_BONUS: 2.0, // For moving when seeker close
     HIDER_STATIONARY_PENALTY: -0.1, // For staying still when safe
-    
+
     // Time penalty
     TIME_PENALTY: -0.001,
-    
+
     // End-of-episode bonuses
-    SEEKER_SUCCESS: 100.0,          // All hiders caught
-    SEEKER_FAILURE: -30.0,          // Time ran out
-    SEEKER_PARTIAL: 50.0,           // Per hider caught
-    HIDER_SURVIVAL: 50.0,           // Survived
-    HIDER_CAUGHT: -50.0,            // Got caught
+    SEEKER_SUCCESS: 100.0, // All hiders caught
+    SEEKER_FAILURE: -30.0, // Time ran out
+    SEEKER_PARTIAL: 50.0, // Per hider caught
+    HIDER_SURVIVAL: 50.0, // Survived
+    HIDER_CAUGHT: -50.0, // Got caught
   };
 
   async connect() {
     try {
       await this.wsClient.connect();
       this.connected = true;
-      console.log("✅ Connected to Python training backend");
       return true;
     } catch (error) {
       alert(
@@ -94,7 +102,6 @@ export class PPOTrainingBridge {
     if (!this.connected) return;
 
     this.training = true;
-    console.log("🚀 PPO Training started");
 
     const originalHandler = this.wsClient.handleMessage.bind(this.wsClient);
 
@@ -119,7 +126,6 @@ export class PPOTrainingBridge {
           originalHandler(data);
         }
       } catch (error) {
-        console.error("❌ Training error:", error);
         this.wsClient.sendError("Message handling failed", error.toString());
         originalHandler(data);
       }
@@ -135,7 +141,6 @@ export class PPOTrainingBridge {
 
     this.training = false; // Not training
     this.DEBUG_MODE = true; // Visual mode
-    console.log("🎮 PPO Demo started - watching trained agents");
 
     const originalHandler = this.wsClient.handleMessage.bind(this.wsClient);
 
@@ -160,7 +165,6 @@ export class PPOTrainingBridge {
           originalHandler(data);
         }
       } catch (error) {
-        console.error("❌ Demo error:", error);
         this.wsClient.sendError(
           "Demo message handling failed",
           error.toString()
@@ -181,18 +185,21 @@ export class PPOTrainingBridge {
 
   stopTraining() {
     this.training = false;
-    console.log("🛑 PPO Training stopped");
+    if (this.logger) {
+      this.logger.close();
+    }
   }
 
   async resetEpisode(episodeNum) {
     this.currentEpisode = episodeNum;
     this.currentStep = 0;
 
+    // Start episode logging
+    this.logger.startEpisode(episodeNum);
+
     if (window.hideSeekUI) {
       window.hideSeekUI.updateTrainingEpisode(episodeNum);
     }
-
-    console.log(`\n🔄 Episode ${episodeNum} - Reset`);
 
     if (this.hideSeekManager.gameRunning) {
       this.hideSeekManager.endGame("episode_reset");
@@ -210,7 +217,6 @@ export class PPOTrainingBridge {
     const success = this.hideSeekManager.initializeGame(this.npcSystem.npcs);
 
     if (!success) {
-      console.error("❌ Failed to initialize game");
       return [];
     }
 
@@ -220,14 +226,6 @@ export class PPOTrainingBridge {
     this.hideSeekManager.gameStartTime =
       startTime + this.hideSeekManager.countdownTime;
 
-    console.log(`⏰ Episode ${episodeNum} timing:`, {
-      simulatedTime: this.simulatedTime,
-      countdownStartTime: this.hideSeekManager.countdownStartTime,
-      gameStartTime: this.hideSeekManager.gameStartTime,
-      countdownDuration: this.hideSeekManager.countdownTime,
-    });
-
-    // Initialize NPC tracking
     this.npcSystem.npcs.forEach((npc) => {
       npc.lastPosition = npc.position.clone();
       npc.explorationCells = new Set();
@@ -286,18 +284,6 @@ export class PPOTrainingBridge {
           await new Promise((resolve) => setTimeout(resolve, frameDelay));
         }
       }
-
-      // Debug logging every 10 steps
-      if (this.currentStep % 10 === 0) {
-        const elapsedTime = this.simulatedTime - this.episodeStartTime;
-        const gameState = this.hideSeekManager.getGameStatus();
-        console.log(`⏱️ Step ${this.currentStep}:`, {
-          elapsed: `${(elapsedTime / 1000).toFixed(1)}s`,
-          state: gameState.state,
-          gameTime: `${(gameState.gameTime / 1000).toFixed(1)}s`,
-          hidersFound: `${gameState.hidersFound}/${gameState.totalHiders}`,
-        });
-      }
     } finally {
       Date.now = originalDateNow;
     }
@@ -312,11 +298,6 @@ export class PPOTrainingBridge {
       elapsedTime > totalGameTime &&
       gameState.state !== NPC.GAME_STATES.GAME_OVER
     ) {
-      console.warn(
-        `⚠️ Force ending - time exceeded: ${(elapsedTime / 1000).toFixed(
-          1
-        )}s > ${(totalGameTime / 1000).toFixed(1)}s`
-      );
       this.hideSeekManager.endGame("time_limit");
     }
 
@@ -324,9 +305,6 @@ export class PPOTrainingBridge {
       gameState.hidersFound >= gameState.totalHiders &&
       gameState.state !== NPC.GAME_STATES.GAME_OVER
     ) {
-      console.warn(
-        `⚠️ Force ending - all hiders found: ${gameState.hidersFound}/${gameState.totalHiders}`
-      );
       this.hideSeekManager.endGame("all_found");
     }
 
@@ -360,35 +338,18 @@ export class PPOTrainingBridge {
       }
     });
 
-    if (this.currentStep % 10 === 0 || this.currentStep === 1) {
-      const elapsedTime = this.simulatedTime - this.episodeStartTime;
-      const totalReward = Object.values(rewards).reduce((a, b) => a + b, 0);
-
-      console.log(`\n📊 Step ${this.currentStep} Rewards:`, {
-        elapsed: `${(elapsedTime / 1000).toFixed(1)}s`,
-        gameState: gameState.state,
-        totalReward: totalReward.toFixed(3),
-        individual: Object.entries(rewards)
-          .map(([id, r]) => `${id}:${r.toFixed(3)}`)
-          .join(", "),
-      });
-
-      // Check if game is in SEEKING phase
-      if (gameState.state !== NPC.GAME_STATES.SEEKING) {
-        console.warn(
-          `⚠️ Not in SEEKING phase! State: ${gameState.state} - All rewards will be 0!`
-        );
-      }
-    }
+    // Log step data
+    this.logger.logStep(this.currentStep, {
+      rewards,
+      gameState,
+      elapsedTime,
+    });
 
     const done = this.isEpisodeDone();
 
     if (done) {
       this.applyEndOfEpisodeRewards(rewards);
-
-      if (this.DEBUG_MODE) {
-        console.log("🏁 Episode End - Final Rewards:", rewards);
-      }
+      this.logger.endEpisode(rewards, gameState);
     }
 
     // Collect observations using cached vision
@@ -411,6 +372,16 @@ export class PPOTrainingBridge {
     this.npcSystem.npcs.forEach((npc) => {
       npc.lastPosition.copy(npc.position);
     });
+
+    // ADD THIS DEBUG LOG - only every 100 steps to avoid spam
+    if (this.currentStep % 100 === 0) {
+      console.log("📤 Sending to Python:", {
+        step: this.currentStep,
+        rewards: stepResult.agents
+          .map((a) => `${a.id}:${a.reward.toFixed(2)}`)
+          .join(", "),
+      });
+    }
 
     return stepResult;
   }
@@ -440,10 +411,10 @@ export class PPOTrainingBridge {
         );
 
         reward += Math.max(
-          0, 
+          0,
           this.REWARD_CONFIG.SEEKER_CLOSE_BONUS * (1.0 - closestDist / 50)
         );
-        
+
         if (closestDist < 10) {
           reward += this.REWARD_CONFIG.SEEKER_VERY_CLOSE;
         }
@@ -457,7 +428,7 @@ export class PPOTrainingBridge {
         npc.explorationCells.add(cellKey);
         reward += this.REWARD_CONFIG.SEEKER_EXPLORATION;
       }
-      
+
       // Movement penalty
       const horizontalSpeed = Math.sqrt(
         npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
@@ -465,7 +436,6 @@ export class PPOTrainingBridge {
       if (horizontalSpeed < 0.5) {
         reward += this.REWARD_CONFIG.SEEKER_STATIONARY_PENALTY;
       }
-      
     } else if (npc.role === "hider") {
       // Visibility penalty
       const seekers = this.npcSystem.npcs.filter((n) => n.role === "seeker");
@@ -485,13 +455,13 @@ export class PPOTrainingBridge {
           this.REWARD_CONFIG.HIDER_DISTANCE_REWARD,
           this.REWARD_CONFIG.HIDER_DISTANCE_REWARD * (closestDist / 50)
         );
-        
+
         // Panic mode
         if (closestDist < 15) {
           const horizontalSpeed = Math.sqrt(
             npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
           );
-          
+
           if (horizontalSpeed < 0.3) {
             reward += this.REWARD_CONFIG.HIDER_PANIC_PENALTY;
           } else {
@@ -521,12 +491,6 @@ export class PPOTrainingBridge {
     const seekers = this.hideSeekManager.seekers || [];
     const hiders = this.hideSeekManager.hiders || [];
 
-    console.log(`\n🏁 EPISODE END - Applying final bonuses:`);
-    console.log(
-      `   Hiders found: ${this.hideSeekManager.hidersFound}/${hiders.length}`
-    );
-    console.log(`   All caught: ${allHidersFound}`);
-
     const caughtHiders = new Set();
     hiders.forEach((hider) => {
       if (hider.hideSeekState === NPC.GAME_STATES.FOUND) {
@@ -543,47 +507,26 @@ export class PPOTrainingBridge {
       if (isSeeker) {
         if (allHidersFound) {
           bonus = this.REWARD_CONFIG.SEEKER_SUCCESS;
-          console.log(`   🦊 ${npc.userData.id}: All caught! Bonus: +${bonus}`);
         } else {
           bonus = this.REWARD_CONFIG.SEEKER_FAILURE;
-          console.log(`   🦊 ${npc.userData.id}: Failed. Penalty: ${bonus}`);
         }
 
-        const partialBonus = 
+        const partialBonus =
           this.hideSeekManager.hidersFound * this.REWARD_CONFIG.SEEKER_PARTIAL;
         bonus += partialBonus;
-        if (partialBonus > 0) {
-          console.log(
-            `   🦊 ${npc.userData.id}: Partial credit: +${partialBonus}`
-          );
-        }
       } else if (isHider) {
         const wasCaught = caughtHiders.has(npc.userData.id);
 
         if (!wasCaught) {
           bonus = this.REWARD_CONFIG.HIDER_SURVIVAL;
-          console.log(`   🐔 ${npc.userData.id}: Survived! Bonus: +${bonus}`);
         } else {
           bonus = this.REWARD_CONFIG.HIDER_CAUGHT;
-          console.log(`   🐔 ${npc.userData.id}: Caught! Penalty: ${bonus}`);
         }
       }
 
       const prevReward = rewards[npc.userData.id] || 0;
       rewards[npc.userData.id] = prevReward + bonus;
-
-      console.log(
-        `   ${npc.userData.id}: ${prevReward.toFixed(2)} + ${bonus.toFixed(
-          2
-        )} = ${rewards[npc.userData.id].toFixed(2)}`
-      );
     });
-
-    console.log(
-      `🎁 Final: ${Object.entries(rewards)
-        .map(([id, r]) => `${id}:${r.toFixed(2)}`)
-        .join(", ")}`
-    );
   }
 
   // ============================================================
@@ -622,18 +565,7 @@ export class PPOTrainingBridge {
 
   isEpisodeDone() {
     const gameStatus = this.hideSeekManager.getGameStatus();
-    const done = gameStatus.state === NPC.GAME_STATES.GAME_OVER;
-
-    // Debug logging
-    if (this.currentStep % 10 === 0 || done) {
-      console.log(`🔍 Episode done check (step ${this.currentStep}):`, {
-        state: gameStatus.state,
-        done: done,
-        hidersFound: `${gameStatus.hidersFound}/${gameStatus.totalHiders}`,
-      });
-    }
-
-    return done;
+    return gameStatus.state === NPC.GAME_STATES.GAME_OVER;
   }
 
   disconnect() {

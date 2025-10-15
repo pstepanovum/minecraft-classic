@@ -437,6 +437,14 @@ async function init() {
     GameState.updateLoadingMessage("Configuring lighting...");
     GameState.setupLighting();
 
+    if (window.SimplexNoise) {
+      console.log("✅ SimplexNoise loaded from script tag");
+      const test = new window.SimplexNoise(123).noise2D(0, 0);
+      console.log("✅ Test noise value:", test);
+    } else {
+      console.error("❌ SimplexNoise not loaded!");
+    }
+
     GameState.updateLoadingMessage("Setting up event listeners...");
     setupEventListeners();
 
@@ -463,6 +471,7 @@ async function init() {
       console.error("Failed to load textures:", error);
     }
 
+    // ✅ NOW start offline mode AFTER SimplexNoise is loaded
     GameState.updateLoadingMessage("Starting in research mode...");
     startOfflineMode();
 
@@ -480,8 +489,6 @@ async function init() {
     GameState.removeLoadingScreen();
 
     startGameIfReady();
-
-    // All automatic ML logic is now removed from here.
 
     setTimeout(GameState.showIntroPopup, 1000);
   } catch (error) {
@@ -529,10 +536,16 @@ function initializeHideSeekSystem() {
 //                       Player Management
 //--------------------------------------------------------------//
 function handlePlayerInfo(playerData) {
+  // Calculate correct spawn position instead of using hardcoded values
+  const spawnPos = GameState.spawn(
+    playerData.position?.x,
+    playerData.position?.z
+  );
+
   const position = new THREE.Vector3(
-    playerData.position.x,
-    playerData.position.y,
-    playerData.position.z
+    spawnPos.x,
+    spawnPos.y, // Now uses calculated terrain height!
+    spawnPos.z
   );
 
   const player = createPlayer(

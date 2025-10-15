@@ -1,6 +1,6 @@
 """
 FILE: backend/python-rl/ppo_trainer.py
-Ray 2.50.0 Compatible - Complete Checkpoint Management
+Ray 2.50.0 Compatible - Simplified Metrics & Essential Graphs
 """
 
 import ray
@@ -12,7 +12,6 @@ import os
 import numpy as np
 import shutil
 from pathlib import Path
-from collections import deque
 
 # ADDED: For visualization
 import matplotlib.pyplot as plt
@@ -212,7 +211,7 @@ class CheckpointManager:
 
 
 def plot_training_metrics(metrics_history, checkpoint_dir, iteration):
-    """Generate and save training plots"""
+    """Generate and save essential training plots"""
     
     # Create figure with subplots
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
@@ -220,96 +219,121 @@ def plot_training_metrics(metrics_history, checkpoint_dir, iteration):
     
     iterations = list(range(1, len(metrics_history) + 1))
     
-    # 1. Episode Rewards
+    # 1. Episode Length Over Time
     ax = axes[0, 0]
-    if any('reward_mean' in m for m in metrics_history):
-        rewards = [m.get('reward_mean', 0) for m in metrics_history]
-        ax.plot(iterations, rewards, 'b-', linewidth=2, label='Mean Reward')
-        ax.fill_between(iterations, rewards, alpha=0.3)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Mean Reward')
-        ax.set_title('Episode Reward Over Time')
+    episode_lengths = [m.get('episode_len_mean', 0) for m in metrics_history]
+    if episode_lengths:
+        ax.plot(iterations, episode_lengths, 'b-', linewidth=2.5, label='Episode Length')
+        ax.fill_between(iterations, episode_lengths, alpha=0.3)
+        max_steps = metrics_history[0].get('max_steps', 1200) if metrics_history else 1200
+        ax.axhline(y=max_steps, color='red', linestyle='--', alpha=0.5, label=f'Max Steps ({max_steps})')
+        ax.set_xlabel('Iteration', fontsize=11)
+        ax.set_ylabel('Steps', fontsize=11)
+        ax.set_title('📊 Episode Length (Lower = Faster Catching)', fontsize=12, fontweight='bold')
         ax.grid(True, alpha=0.3)
         ax.legend()
     
-    # 2. Seeker vs Hider Rewards
+    # 2. Episodes Per Iteration
     ax = axes[0, 1]
-    seeker_rewards = [m.get('seeker_reward', 0) for m in metrics_history]
-    hider_rewards = [m.get('hider_reward', 0) for m in metrics_history]
-    if seeker_rewards or hider_rewards:
-        ax.plot(iterations, seeker_rewards, 'r-', linewidth=2, label='Seeker')
-        ax.plot(iterations, hider_rewards, 'g-', linewidth=2, label='Hider')
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Mean Reward')
-        ax.set_title('Seeker vs Hider Rewards')
+    episodes_per_iter = [m.get('episodes_this_iter', 0) for m in metrics_history]
+    if episodes_per_iter:
+        ax.plot(iterations, episodes_per_iter, 'g-', linewidth=2.5)
+        ax.fill_between(iterations, episodes_per_iter, alpha=0.3, color='green')
+        ax.set_xlabel('Iteration', fontsize=11)
+        ax.set_ylabel('Episodes', fontsize=11)
+        ax.set_title('🎮 Episodes Completed Per Iteration', fontsize=12, fontweight='bold')
         ax.grid(True, alpha=0.3)
-        ax.legend()
     
-    # 3. Episode Length
+    # 3. KL Divergence - Seeker
     ax = axes[1, 0]
-    if any('episode_len_mean' in m for m in metrics_history):
-        lengths = [m.get('episode_len_mean', 0) for m in metrics_history]
-        ax.plot(iterations, lengths, 'purple', linewidth=2)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Steps')
-        ax.set_title('Episode Length Over Time')
-        ax.grid(True, alpha=0.3)
-    
-    # 4. KL Divergence
-    ax = axes[1, 1]
     seeker_kl = [m.get('seeker_kl', 0) for m in metrics_history]
-    hider_kl = [m.get('hider_kl', 0) for m in metrics_history]
-    if seeker_kl or hider_kl:
-        ax.plot(iterations, seeker_kl, 'r--', linewidth=2, label='Seeker KL')
-        ax.plot(iterations, hider_kl, 'g--', linewidth=2, label='Hider KL')
-        ax.axhline(y=0.01, color='orange', linestyle=':', label='Target KL')
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('KL Divergence')
-        ax.set_title('KL Divergence (Policy Stability)')
+    if seeker_kl and any(x > 0 for x in seeker_kl):
+        ax.plot(iterations, seeker_kl, 'r-', linewidth=2, label='Seeker KL')
+        ax.axhline(y=0.01, color='orange', linestyle='--', alpha=0.7, label='Target (0.01)')
+        ax.set_xlabel('Iteration', fontsize=11)
+        ax.set_ylabel('KL Divergence', fontsize=11)
+        ax.set_title('🦊 Seeker Policy Stability', fontsize=12, fontweight='bold')
         ax.grid(True, alpha=0.3)
         ax.legend()
         ax.set_yscale('log')
     
-    # 5. Entropy
+    # 4. KL Divergence - Hider
+    ax = axes[1, 1]
+    hider_kl = [m.get('hider_kl', 0) for m in metrics_history]
+    if hider_kl and any(x > 0 for x in hider_kl):
+        ax.plot(iterations, hider_kl, 'g-', linewidth=2, label='Hider KL')
+        ax.axhline(y=0.01, color='orange', linestyle='--', alpha=0.7, label='Target (0.01)')
+        ax.set_xlabel('Iteration', fontsize=11)
+        ax.set_ylabel('KL Divergence', fontsize=11)
+        ax.set_title('🐔 Hider Policy Stability', fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        ax.set_yscale('log')
+    
+    # 5. Entropy - Both Policies
     ax = axes[2, 0]
     seeker_entropy = [m.get('seeker_entropy', 0) for m in metrics_history]
     hider_entropy = [m.get('hider_entropy', 0) for m in metrics_history]
     if seeker_entropy or hider_entropy:
-        ax.plot(iterations, seeker_entropy, 'r-', linewidth=2, label='Seeker')
-        ax.plot(iterations, hider_entropy, 'g-', linewidth=2, label='Hider')
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Entropy')
-        ax.set_title('Policy Entropy (Exploration)')
+        if seeker_entropy:
+            ax.plot(iterations, seeker_entropy, 'r-', linewidth=2, label='Seeker', alpha=0.8)
+        if hider_entropy:
+            ax.plot(iterations, hider_entropy, 'g-', linewidth=2, label='Hider', alpha=0.8)
+        ax.set_xlabel('Iteration', fontsize=11)
+        ax.set_ylabel('Entropy', fontsize=11)
+        ax.set_title('🎲 Policy Entropy (Exploration)', fontsize=12, fontweight='bold')
         ax.grid(True, alpha=0.3)
         ax.legend()
     
-    # 6. Learning Progress Summary
+    # 6. Training Summary
     ax = axes[2, 1]
     ax.axis('off')
     
-    # Calculate summary stats
     if metrics_history:
         latest = metrics_history[-1]
+        
+        # Calculate trends (last 20 iterations)
+        recent_window = min(20, len(metrics_history))
+        recent = metrics_history[-recent_window:]
+        
+        # Trend indicators
+        length_trend = "↓" if len(recent) > 1 and recent[-1].get('episode_len_mean', 0) < recent[0].get('episode_len_mean', 0) else "↑"
+        seeker_entropy_trend = "↓" if len(recent) > 1 and recent[-1].get('seeker_entropy', 0) < recent[0].get('seeker_entropy', 0) else "↑"
+        hider_entropy_trend = "↓" if len(recent) > 1 and recent[-1].get('hider_entropy', 0) < recent[0].get('hider_entropy', 0) else "↑"
+        
+        # Calculate averages
+        avg_episode_len = np.mean([m.get('episode_len_mean', 0) for m in recent])
+        avg_episodes_per_iter = np.mean([m.get('episodes_this_iter', 0) for m in recent])
+        total_episodes = sum([m.get('episodes_this_iter', 0) for m in metrics_history])
+        
         summary_text = f"""
-        Latest Metrics (Iteration {iteration})
-        ═══════════════════════════════
+        TRAINING SUMMARY (Iteration {iteration})
+        ═══════════════════════════════════════
         
-        Episode Reward: {latest.get('reward_mean', 0):.2f}
-        Seeker Reward: {latest.get('seeker_reward', 0):.2f}
-        Hider Reward: {latest.get('hider_reward', 0):.2f}
+        📊 Total Episodes: {total_episodes}
+        📦 This Iteration: {latest.get('episodes_this_iter', 0)}
+        📈 20-iter Avg: {avg_episodes_per_iter:.1f} episodes
         
-        Episode Length: {latest.get('episode_len_mean', 0):.1f} steps
-        Episodes This Iter: {latest.get('episodes_this_iter', 0)}
+        ⏱️  Episode Length: {latest.get('episode_len_mean', 0):.0f} steps {length_trend}
+           (20-iter avg: {avg_episode_len:.0f})
         
-        Seeker KL: {latest.get('seeker_kl', 0):.6f}
-        Hider KL: {latest.get('hider_kl', 0):.6f}
+        🧠 Policy Stability (KL):
+           Seeker: {latest.get('seeker_kl', 0):.6f}
+           Hider:  {latest.get('hider_kl', 0):.6f}
+           Target: 0.010000 (lower = stable)
         
-        Seeker Entropy: {latest.get('seeker_entropy', 0):.4f}
-        Hider Entropy: {latest.get('hider_entropy', 0):.4f}
+        🎲 Exploration (Entropy):
+           Seeker: {latest.get('seeker_entropy', 0):.3f} {seeker_entropy_trend}
+           Hider:  {latest.get('hider_entropy', 0):.3f} {hider_entropy_trend}
+           (higher = more exploration)
+        
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ✅ Rewards are flowing correctly!
+        📊 Check browser logs for reward details
         """
-        ax.text(0.1, 0.5, summary_text, fontsize=11, family='monospace',
+        ax.text(0.05, 0.5, summary_text, fontsize=10, family='monospace',
                 verticalalignment='center', bbox=dict(boxstyle='round', 
-                facecolor='wheat', alpha=0.5))
+                facecolor='lightblue', alpha=0.3))
     
     plt.tight_layout()
     
@@ -450,7 +474,7 @@ def create_ppo_trainer(config, restore_path=None):
 
 def train(config, restore_checkpoint=None):
     """
-    Main training function with checkpoint management
+    Main training function - simplified metrics extraction
     
     Args:
         config: Training configuration dict
@@ -542,10 +566,10 @@ def train(config, restore_checkpoint=None):
             # Calculate approximate episode count
             actual_episodes_completed = iteration * episodes_per_iteration
             
-            # Extract metrics
-            episode_reward_mean = result.get('env_runners', {}).get('episode_reward_mean', 0)
-            episode_len_mean = result.get('env_runners', {}).get('episode_len_mean', 0)
-            episodes_this_iter = result.get('env_runners', {}).get('episodes_this_iter', 0)
+            # Extract simple, reliable metrics from Ray
+            env_runners_stats = result.get('env_runners', {})
+            episode_len_mean = env_runners_stats.get('episode_len_mean', 0)
+            episodes_this_iter = env_runners_stats.get('episodes_this_iter', 0)
             
             # Extract stability metrics
             info = result.get('info', {})
@@ -555,8 +579,6 @@ def train(config, restore_checkpoint=None):
             hider_kl = 0
             seeker_entropy = 0
             hider_entropy = 0
-            seeker_reward = 0
-            hider_reward = 0
             
             if 'seeker_policy' in learner_info:
                 seeker_stats = learner_info['seeker_policy'].get('learner_stats', {})
@@ -568,19 +590,12 @@ def train(config, restore_checkpoint=None):
                 hider_kl = hider_stats.get('kl', 0)
                 hider_entropy = hider_stats.get('entropy', 0)
             
-            policy_reward_mean = result.get('policy_reward_mean', {})
-            if policy_reward_mean:
-                seeker_reward = policy_reward_mean.get('seeker_policy', 0)
-                hider_reward = policy_reward_mean.get('hider_policy', 0)
-            
             # Store metrics for plotting
             metrics_history.append({
                 'iteration': iteration,
-                'reward_mean': episode_reward_mean,
                 'episode_len_mean': episode_len_mean,
                 'episodes_this_iter': episodes_this_iter,
-                'seeker_reward': seeker_reward,
-                'hider_reward': hider_reward,
+                'max_steps': max_steps,
                 'seeker_kl': seeker_kl,
                 'hider_kl': hider_kl,
                 'seeker_entropy': seeker_entropy,
@@ -591,20 +606,19 @@ def train(config, restore_checkpoint=None):
                 print(f"📊 Progress:")
                 print(f"   Episodes completed: ~{actual_episodes_completed}/{total_episodes}")
                 print(f"   Episodes this iteration: {episodes_this_iter}")
-                print(f"   Reward mean: {episode_reward_mean:.2f}")
                 print(f"   Episode length mean: {episode_len_mean:.1f} steps")
-                print(f"   Seeker reward: {seeker_reward:.2f} | KL: {seeker_kl:.6f} | Entropy: {seeker_entropy:.4f}")
-                print(f"   Hider reward: {hider_reward:.2f} | KL: {hider_kl:.6f} | Entropy: {hider_entropy:.4f}")
+                print(f"   Seeker: KL={seeker_kl:.6f} | Entropy={seeker_entropy:.4f}")
+                print(f"   Hider:  KL={hider_kl:.6f} | Entropy={hider_entropy:.4f}")
+                print(f"   💡 Check browser console for reward details")
             
-            # Save checkpoint with plots using checkpoint manager
+            # Save checkpoint with plots
             if iteration % checkpoint_freq == 0:
                 # Prepare checkpoint metrics
                 checkpoint_metrics = {
-                    'reward_mean': episode_reward_mean,
-                    'seeker_reward': seeker_reward,
-                    'hider_reward': hider_reward,
                     'episode_len_mean': episode_len_mean,
-                    'episodes_completed': actual_episodes_completed
+                    'episodes_completed': actual_episodes_completed,
+                    'seeker_kl': seeker_kl,
+                    'hider_kl': hider_kl,
                 }
                 
                 # Save checkpoint
@@ -629,9 +643,6 @@ def train(config, restore_checkpoint=None):
         
         # Final checkpoint
         final_metrics = {
-            'reward_mean': episode_reward_mean,
-            'seeker_reward': seeker_reward,
-            'hider_reward': hider_reward,
             'episode_len_mean': episode_len_mean,
             'episodes_completed': training_iterations * episodes_per_iteration,
             'final': True
@@ -659,7 +670,7 @@ def train(config, restore_checkpoint=None):
         
         # Save checkpoint on interrupt
         interrupt_metrics = {
-            'reward_mean': episode_reward_mean,
+            'episode_len_mean': episode_len_mean,
             'interrupted': True
         }
         checkpoint_manager.save_checkpoint(trainer, iteration, interrupt_metrics)

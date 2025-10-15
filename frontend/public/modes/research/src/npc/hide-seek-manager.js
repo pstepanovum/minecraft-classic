@@ -1,8 +1,14 @@
 // ==============================================================
-// FILE: research/src/npc/hide-seek/hide-seek-manager.js
+// FILE: research/src/npc/hide-seek-manager.js (UPDATED)
 // ==============================================================
 
 import { NPC } from "./config-npc-behavior.js";
+
+// IMPORT LOGGER
+import { HideSeekManagerLogger } from "../ml/log/hide-seek-manager-logger.js";
+import sessionManager from "../ml/log/session-manager.js";
+import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
+import { getCurrentTerrainSeed } from "../world/terrain-generator.js";
 
 export class HideSeekManager {
   constructor(scene) {
@@ -19,13 +25,26 @@ export class HideSeekManager {
     this.hidersFound = 0;
     this.gameRunning = false;
     this.visualIndicators = new Map();
+
+    // Initialize logger
+    this.logger = new HideSeekManagerLogger("http://localhost:3001", {
+      enabled: true,
+      logLevel: "INFO", // Change to "MIN" for verbose
+      sessionDir: sessionManager.getSessionDir(),
+    });
+
+    // Track last countdown second for logging
+    this.lastCountdownSecond = -1;
   }
 
   initializeGame(npcs) {
     const requiredNPCs =
       NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
 
+    this.logger.logGameInitialization(npcs?.length || 0, requiredNPCs);
+
     if (!npcs || npcs.length < requiredNPCs) {
+      this.logger.logGameInitializationFailed(npcs?.length || 0, requiredNPCs);
       return false;
     }
 
@@ -33,14 +52,21 @@ export class HideSeekManager {
     this.assignRoles();
     this.setupVisualIndicators();
     this.resetGameState();
+
+    this.logger.logGameInitializationSuccess();
     return true;
   }
 
   resetGameState() {
+    const oldState = this.gameState;
     this.gameState = NPC.GAME_STATES.COUNTDOWN;
     this.countdownStartTime = Date.now();
     this.hidersFound = 0;
     this.gameRunning = true;
+    this.lastCountdownSecond = -1;
+
+    this.logger.logStateChange(oldState, this.gameState);
+    this.logger.logCountdownStart(this.countdownTime);
 
     this.npcs.forEach((npc) => {
       npc.justCaughtHider = false;
@@ -52,9 +78,16 @@ export class HideSeekManager {
     const seekerCount = NPC.HIDE_AND_SEEK.seekerCount;
     const hiderCount = NPC.HIDE_AND_SEEK.hiderCount;
 
+    this.logger.logRoleAssignment(seekerCount, hiderCount);
+
     this.seekers = this.npcs.slice(0, seekerCount);
     this.seekers.forEach((seeker) => {
       this.initializeNPC(seeker, "seeker", NPC.GAME_STATES.WAITING);
+      this.logger.logNPCRole(
+        seeker.userData.id,
+        "seeker",
+        NPC.GAME_STATES.WAITING
+      );
     });
 
     this.seeker = this.seekers[0];
@@ -62,6 +95,11 @@ export class HideSeekManager {
     this.hiders = this.npcs.slice(seekerCount, seekerCount + hiderCount);
     this.hiders.forEach((hider) => {
       this.initializeNPC(hider, "hider", NPC.GAME_STATES.HIDDEN);
+      this.logger.logNPCRole(
+        hider.userData.id,
+        "hider",
+        NPC.GAME_STATES.HIDDEN
+      );
     });
 
     this.verifySpawnDistances();
@@ -72,18 +110,63 @@ export class HideSeekManager {
 
     this.seekers.forEach((seeker) => {
       this.hiders.forEach((hider) => {
-        const distance = seeker.position.distanceTo(hider.position);
+        const originalDistance = seeker.position.distanceTo(hider.position);
 
-        if (distance < MIN_SEEKER_HIDER_DISTANCE) {
+        if (originalDistance < MIN_SEEKER_HIDER_DISTANCE) {
           const dx = hider.position.x - seeker.position.x;
           const dz = hider.position.z - seeker.position.z;
           const angle = Math.atan2(dz, dx);
 
-          seeker.position.x = hider.position.x - Math.cos(angle) * 15;
-          seeker.position.z = hider.position.z - Math.sin(angle) * 15;
+          // Calculate new X and Z position
+          const newX = hider.position.x - Math.cos(angle) * 15;
+          const newZ = hider.position.z - Math.sin(angle) * 15;
+
+          // ✅ RECALCULATE GROUND HEIGHT at new position
+          const newY = this.calculateSafeHeight(newX, newZ);
+
+          // Apply new position with correct ground height
+          seeker.position.x = Math.floor(newX) + 0.5; // Center on block
+          seeker.position.y = newY;
+          seeker.position.z = Math.floor(newZ) + 0.5; // Center on block
+
+          const newDistance = seeker.position.distanceTo(hider.position);
+          this.logger.logSpawnDistanceAdjustment(
+            seeker.userData.id,
+            hider.userData.id,
+            originalDistance,
+            newDistance
+          );
         }
       });
     });
+  }
+
+  calculateSafeHeight(x, z) {
+    const maxY =
+      TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL +
+      TRAINING_WORLD_CONFIG.TERRAIN_HEIGHT_RANGE +
+      5;
+    const minY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL - 5;
+
+    for (let y = maxY; y >= minY; y -= 0.5) {
+      const testPos = new THREE.Vector3(x, y, z);
+      const belowPos = new THREE.Vector3(x, y - 0.5, z);
+
+      const currentCheck = window.NPCPhysics.checkNPCCollision(
+        testPos,
+        this.scene
+      );
+      const belowCheck = window.NPCPhysics.checkNPCCollision(
+        belowPos,
+        this.scene
+      );
+
+      if (!currentCheck.collides && belowCheck.collides) {
+        return y + 0.5;
+      }
+    }
+
+    return TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 10;
   }
 
   initializeNPC(npc, role, state) {
@@ -100,18 +183,27 @@ export class HideSeekManager {
   }
 
   endGame(reason) {
+    const gameStats = {
+      hidersFound: this.hidersFound,
+      totalHiders: this.hiders.length,
+      gameTime: this.gameStartTime > 0 ? Date.now() - this.gameStartTime : 0,
+    };
+
+    this.logger.logGameEnd(reason, gameStats);
+
     this.gameState = NPC.GAME_STATES.GAME_OVER;
     this.gameRunning = false;
 
     this.npcs.forEach((npc) => {
       npc.role = null;
-      // npc.hideSeekState = null;
       npc.mlControlled = false;
     });
   }
 
   restartGame() {
+    this.logger.logGameRestart();
     this.endGame("restart");
+
     setTimeout(() => {
       const requiredNPCs =
         NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
@@ -139,14 +231,15 @@ export class HideSeekManager {
       case NPC.GAME_STATES.COUNTDOWN:
         const timeInCountdown = now - this.countdownStartTime;
         const remaining = this.countdownTime - timeInCountdown;
-
-        // ADD THIS:
         const secondsRemaining = Math.ceil(remaining / 1000);
-        const prevSecondsRemaining = Math.ceil((remaining - 16) / 1000);
-        if (secondsRemaining !== prevSecondsRemaining && secondsRemaining > 0) {
-          console.log(
-            `⏳ Countdown: ${secondsRemaining}s remaining - Seekers frozen, hiders hiding...`
-          );
+
+        // Log countdown ticks
+        if (
+          secondsRemaining !== this.lastCountdownSecond &&
+          secondsRemaining > 0
+        ) {
+          this.logger.logCountdownTick(secondsRemaining);
+          this.lastCountdownSecond = secondsRemaining;
         }
 
         if (timeInCountdown < this.countdownTime) {
@@ -160,11 +253,12 @@ export class HideSeekManager {
             hider.inPreparationPhase = false;
           });
         } else {
+          const oldState = this.gameState;
           this.gameState = NPC.GAME_STATES.SEEKING;
           this.gameStartTime = now;
 
-          // ADD THIS:
-          console.log("🔍 SEEKING PHASE STARTED - Seekers can now move!");
+          this.logger.logStateChange(oldState, this.gameState);
+          this.logger.logSeekingPhaseStart();
 
           this.seekers.forEach((seeker) => {
             seeker.hideSeekState = NPC.GAME_STATES.SEEKING;
@@ -175,7 +269,7 @@ export class HideSeekManager {
 
       case NPC.GAME_STATES.SEEKING:
         if (now - this.gameStartTime >= this.gameTimeLimit) {
-          console.log("⏰ TIMEOUT - Hiders win!");
+          this.logger.logGameTimeout();
           this.endGame("timeout");
         }
         break;
@@ -185,6 +279,7 @@ export class HideSeekManager {
   checkDetections() {
     this.hiders.forEach((hider) => {
       if (hider.hideSeekState === NPC.GAME_STATES.FOUND) return;
+
       const catchingSeeker = this.seekers.find((seeker) => {
         const distance = seeker.position.distanceTo(hider.position);
         return distance < 2;
@@ -193,6 +288,9 @@ export class HideSeekManager {
       if (catchingSeeker) {
         this.processDetection(hider, catchingSeeker);
       } else {
+        if (hider.isDetected) {
+          this.logger.logDetectionReset(hider.userData.id);
+        }
         this.resetDetection(hider);
       }
     });
@@ -204,21 +302,20 @@ export class HideSeekManager {
       hider.detectionTimer = Date.now();
       hider.caughtBySeeker = catchingSeeker;
 
-      // ADD THIS:
       const distance = catchingSeeker.position.distanceTo(hider.position);
-      console.log(
-        `⚠️ Detection started: ${catchingSeeker.userData.id} → ${
-          hider.userData.id
-        } (distance: ${distance.toFixed(2)})`
+      this.logger.logDetectionStarted(
+        catchingSeeker.userData.id,
+        hider.userData.id,
+        distance
       );
     } else {
       const detectionTime = Date.now() - hider.detectionTimer;
 
-      if (detectionTime % 200 < 16) {
-        console.log(
-          `⏱️ Detecting ${hider.userData.id}: ${detectionTime}ms / ${NPC.HIDE_AND_SEEK.SEEKER.detectionTime}ms`
-        );
-      }
+      this.logger.logDetectionProgress(
+        hider.userData.id,
+        detectionTime,
+        NPC.HIDE_AND_SEEK.SEEKER.detectionTime
+      );
 
       if (detectionTime >= NPC.HIDE_AND_SEEK.SEEKER.detectionTime) {
         this.catchHider(hider, hider.caughtBySeeker);
@@ -233,15 +330,14 @@ export class HideSeekManager {
   }
 
   catchHider(hider, catchingSeeker) {
-    // ADD THIS:
     const gameTime = Date.now() - this.gameStartTime;
-    console.log(
-      `🎯 CAUGHT! ${catchingSeeker.userData.id} caught ${
-        hider.userData.id
-      } at ${(gameTime / 1000).toFixed(1)}s`
-    );
-    console.log(
-      `   Total caught: ${this.hidersFound + 1}/${this.hiders.length}`
+
+    this.logger.logHiderCaught(
+      catchingSeeker.userData.id,
+      hider.userData.id,
+      gameTime,
+      this.hidersFound + 1,
+      this.hiders.length
     );
 
     hider.hideSeekState = NPC.GAME_STATES.FOUND;
@@ -261,13 +357,13 @@ export class HideSeekManager {
 
     hider.caughtTime = Date.now();
     catchingSeeker.lastCatchTime = Date.now();
-
     catchingSeeker.justCaughtHider = true;
   }
 
   checkWinConditions() {
     if (this.hidersFound >= this.hiders.length) {
-      console.log("🏆 SEEKER WINS - All hiders caught!");
+      const gameTime = Date.now() - this.gameStartTime;
+      this.logger.logSeekerVictory(this.hidersFound, gameTime);
       this.endGame("seeker_wins");
     }
   }
@@ -282,11 +378,20 @@ export class HideSeekManager {
 
     if (!NPC.VISUALS.showNPCStatus) return;
 
+    this.logger.logVisualIndicatorsSetup(this.npcs.length);
+
     this.npcs.forEach((npc) => {
       const indicator = this.createRoleIndicator(npc);
       if (indicator) {
         npc.add(indicator);
         this.visualIndicators.set(npc, indicator);
+
+        const color =
+          npc.role === "seeker"
+            ? NPC.HIDE_AND_SEEK.SEEKER.visualIndicatorColor
+            : NPC.HIDE_AND_SEEK.HIDER.visualIndicatorColor;
+
+        this.logger.logVisualIndicatorCreated(npc.userData.id, npc.role, color);
       }
     });
   }
@@ -320,6 +425,12 @@ export class HideSeekManager {
       timeLimit: this.gameTimeLimit,
       gameStartTime: this.gameStartTime,
     };
+  }
+
+  // Add cleanup method
+  cleanup() {
+    this.logger.logStats();
+    this.logger.close();
   }
 }
 

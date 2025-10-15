@@ -4,6 +4,16 @@
 
 import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
 
+// ✅ Store the current terrain seed globally
+let currentTerrainSeed = TRAINING_WORLD_CONFIG.SEED;
+
+/**
+ * Get the current terrain seed being used
+ */
+export function getCurrentTerrainSeed() {
+  return currentTerrainSeed;
+}
+
 /**
  * Wait for terrain chunks to finish generating after a regeneration command.
  * @param {object} chunkManager - The manager responsible for world chunks.
@@ -16,11 +26,9 @@ async function waitForChunks(chunkManager) {
   const spawnChunkX = Math.floor(worldCenter / chunkSize);
   const spawnChunkZ = Math.floor(worldCenter / chunkSize);
 
-  // Calculate the radius of chunks to load around the center
   const chunksNeeded = Math.ceil(worldSize / chunkSize);
   const radius = Math.floor(chunksNeeded / 2);
 
-  // Request generation for all necessary chunks
   for (let dx = -radius; dx <= radius; dx++) {
     for (let dz = -radius; dz <= radius; dz++) {
       const chunkX = spawnChunkX + dx;
@@ -31,12 +39,11 @@ async function waitForChunks(chunkManager) {
     }
   }
 
-  const expectedMeshes = chunksNeeded * chunksNeeded * 3; // Assuming 3 meshes per chunk
+  const expectedMeshes = chunksNeeded * chunksNeeded * 3;
 
-  // Wait until a significant portion of chunks are ready or timeout
   return new Promise((resolve) => {
     const checkInterval = 100;
-    const maxWaitTime = 10000; // 10 seconds
+    const maxWaitTime = 10000;
     const startTime = Date.now();
 
     const checkMeshes = () => {
@@ -51,7 +58,6 @@ async function waitForChunks(chunkManager) {
 
       const elapsed = Date.now() - startTime;
 
-      // Resolve if enough chunks are loaded or if we've waited too long
       if (meshCount >= expectedMeshes * 0.5 || elapsed > maxWaitTime) {
         console.log(
           `   Generated ${meshCount}/${expectedMeshes} chunks in ${elapsed}ms`
@@ -80,20 +86,21 @@ export async function regenerateTerrain(chunkManager) {
     return;
   }
 
-  const USE_SAME_SEED = false; // Use a consistent seed for reproducibility
+  const USE_SAME_SEED = false;
   const seed = USE_SAME_SEED ? 42 : Math.floor(Math.random() * 1000000);
+
+  // ✅ Store the seed so NPCs can use it for spawn calculations
+  currentTerrainSeed = seed;
 
   console.log(`🌍 Regenerating terrain with seed ${seed}...`);
 
-  // Send command to the chunk worker to regenerate the world
   chunkManager.chunkWorker.postMessage({
     type: "regenerate",
     seed: seed,
   });
 
-  // Clear current chunks and wait for the new ones to be generated
   chunkManager.clearAllChunks();
   await waitForChunks(chunkManager);
 
-  console.log(`✅ Terrain ready`);
+  console.log(`✅ Terrain ready with seed ${seed}`);
 }

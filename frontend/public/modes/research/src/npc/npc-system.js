@@ -1,5 +1,5 @@
 // ==============================================================
-// FILE: research/src/npc/npc-system.js
+// FILE: research/src/npc/npc-system.js (UPDATED)
 // ==============================================================
 
 import { createPlayer } from "../../../../src/player/players.js";
@@ -9,6 +9,9 @@ import * as NPCPhysics from "../npc/physics/npc-physics.js";
 import { NPC } from "./config-npc-behavior.js";
 import HideSeekManager from "./hide-seek-manager.js";
 import NPCMovementController from "./physics/npc-movement-controller.js";
+import { NPCSystemLogger } from "../ml/log/npc-system-logger.js";
+import sessionManager from "../ml/log/session-manager.js";
+import { getCurrentTerrainSeed } from "../world/terrain-generator.js";
 
 window.NPCPhysics = NPCPhysics;
 
@@ -27,6 +30,12 @@ class NPCSystem {
     this.seekerCount = 0;
     this.hiderCount = 0;
 
+    this.logger = new NPCSystemLogger("http://localhost:3001", {
+      enabled: true,
+      logLevel: "INFO",
+      sessionDir: sessionManager.getSessionDir(),
+    });
+
     this.settings = {
       maxNPCs: 10,
       spawnDistance: {
@@ -43,8 +52,53 @@ class NPCSystem {
     };
   }
 
+  // ============================================================
+  // TERRAIN HEIGHT CALCULATION (same as player spawn)
+  // ============================================================
+
   initialize() {
     return this;
+  }
+
+  findValidSpawnPosition() {
+    const worldSize = TRAINING_WORLD_CONFIG.SIZE;
+    const buffer = 5; // Stay away from edges
+
+    for (let attempt = 0; attempt < 50; attempt++) {
+      // Random position in world
+      const x = buffer + Math.random() * (worldSize - buffer * 2);
+      const z = buffer + Math.random() * (worldSize - buffer * 2);
+
+      // Center on block
+      const blockX = Math.floor(x) + 0.5;
+      const blockZ = Math.floor(z) + 0.5;
+
+      // Find ground height
+      const y = this.findSafeSpawnHeight(blockX, blockZ);
+
+      // Check headroom
+      const headPos = new THREE.Vector3(blockX, y + 1.8, blockZ);
+      const headCheck = NPCPhysics.checkNPCCollision(headPos, this.scene);
+
+      if (headCheck.collides) continue;
+
+      // Check distance to other NPCs
+      const spawnPos = new THREE.Vector3(blockX, y, blockZ);
+      const tooClose = this.npcs.some((npc) => {
+        return npc.position.distanceTo(spawnPos) < this.settings.minNPCDistance;
+      });
+
+      if (!tooClose) {
+        return { x: blockX, y, z: blockZ };
+      }
+    }
+
+    // Fallback: world center
+    const centerX = worldSize / 2 + 0.5;
+    const centerZ = worldSize / 2 + 0.5;
+    const centerY = this.findSafeSpawnHeight(centerX, centerZ);
+
+    return { x: centerX, y: centerY, z: centerZ };
   }
 
   generateNPCs(count = null) {
@@ -92,11 +146,13 @@ class NPCSystem {
   spawnNPC(index = 0, position = null) {
     const spawnPos = position || this.findValidSpawnPosition();
     if (!spawnPos) {
+      this.logger.logSpawnFailure("No valid position found", { attempts: 100 });
       return null;
     }
 
     let id;
     let skin;
+    let role;
 
     if (this.gameMode === "hide_and_seek") {
       const seekerCount = NPC.HIDE_AND_SEEK.seekerCount;
@@ -105,15 +161,20 @@ class NPCSystem {
         this.seekerCount++;
         id = `seeker-${this.seekerCount}`;
         skin = this.skins.seeker;
+        role = "seeker";
       } else {
         this.hiderCount++;
         id = `hider-${this.hiderCount}`;
         skin = this.skins.hider;
+        role = "hider";
       }
     } else {
       id = `npc-${++this.npcCount}`;
       skin = this.skins.default;
+      role = "default";
     }
+
+    this.logger.logSpawnAttempt(index, spawnPos, role);
 
     const npc = createPlayer(
       this.scene,
@@ -130,6 +191,8 @@ class NPCSystem {
 
     this.initializeNPC(npc);
     this.npcs.push(npc);
+
+    this.logger.logSpawnSuccess(id, spawnPos, role);
 
     return npc;
   }
@@ -154,6 +217,8 @@ class NPCSystem {
       this.hideSeekManager.endGame("manual_stop");
     }
 
+    const count = this.npcs.length;
+
     for (const npc of this.npcs) {
       if (npc.parent) {
         this.scene.remove(npc);
@@ -164,117 +229,43 @@ class NPCSystem {
     this.npcCount = 0;
     this.seekerCount = 0;
     this.hiderCount = 0;
+
+    this.logger.logAllNPCsRemoved(count);
   }
 
-  findValidSpawnPosition() {
-    if (!GameState.player) return null;
+  findSafeSpawnHeight(x, z) {
+    // Start scanning from a reasonable high point
+    const maxY =
+      TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL +
+      TRAINING_WORLD_CONFIG.TERRAIN_HEIGHT_RANGE +
+      5;
+    const minY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL - 5;
 
-    const playerPos = GameState.player.position;
-    const { min, max } = this.settings.spawnDistance;
+    // Scan down in small steps
+    for (let y = maxY; y >= minY; y -= 0.5) {
+      const testPos = new THREE.Vector3(x, y, z);
+      const belowPos = new THREE.Vector3(x, y - 0.5, z);
 
-    for (let attempts = 0; attempts < 100; attempts++) {  // Increased from 50
-      const distance = min + Math.random() * (max - min);
-      const angle = Math.random() * Math.PI * 2;
+      // Check if current position is air and below is solid
+      const currentCheck = NPCPhysics.checkNPCCollision(testPos, this.scene);
+      const belowCheck = NPCPhysics.checkNPCCollision(belowPos, this.scene);
 
-      const x = playerPos.x + Math.cos(angle) * distance;
-      const z = playerPos.z + Math.sin(angle) * distance;
-      const groundY = this.findGroundLevel(x, z);
-
-      if (groundY > 0) {
-        // ✅ ADDED: Spawn with buffer above ground
-        const spawnY = groundY + 0.5;  // Half block above ground for safety
-        const spawnPos = new THREE.Vector3(x, spawnY, z);
-        
-        // ✅ IMPROVED: Check more headroom (NPC is 1.7 blocks tall)
-        const hasHeadroom = this.checkHeadroom(spawnPos, 2.0);
-        const collision = NPCPhysics.checkNPCCollision(spawnPos, this.scene);
-        
-        if (!collision.collides && hasHeadroom) {
-          const tooCloseToOthers = this.npcs.some((npc) => {
-            const dist = npc.position.distanceTo(spawnPos);
-            return dist < this.settings.minNPCDistance;
-          });
-
-          if (!tooCloseToOthers) {
-            console.log(`✅ Valid spawn found at (${x.toFixed(1)}, ${spawnY.toFixed(1)}, ${z.toFixed(1)})`);
-            return { x, y: spawnY, z };
-          }
-        }
+      // Found ground: air above, solid below
+      if (!currentCheck.collides && belowCheck.collides) {
+        // Return position slightly above the solid block
+        return y + 0.5;
       }
     }
 
-    // ✅ IMPROVED: Better fallback with actual ground detection
-    console.warn("⚠️ Using fallback spawn position");
-    const fallbackAngle = Math.random() * Math.PI * 2;
-    const fallbackDist = 15;
-    const fallbackX = playerPos.x + Math.cos(fallbackAngle) * fallbackDist;
-    const fallbackZ = playerPos.z + Math.sin(fallbackAngle) * fallbackDist;
-    const fallbackY = this.findGroundLevel(fallbackX, fallbackZ);
-    
-    if (fallbackY > 0) {
-      return {
-        x: fallbackX,
-        y: fallbackY + 1.0,  // 1 block above ground for safety
-        z: fallbackZ,
-      };
-    }
-    
-    // ✅ LAST RESORT: Use world center at high altitude
-    console.error("❌ Could not find valid spawn! Using world center");
-    const worldSize = TRAINING_WORLD_CONFIG.SIZE;
-    return {
-      x: worldSize / 2,
-      y: TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 10,
-      z: worldSize / 2,
-    };
-  }
-
-  checkHeadroom(position, requiredHeight) {
-    const testPos = new THREE.Vector3();
-    
-    for (let y = 0; y <= requiredHeight; y += 0.5) {
-      testPos.copy(position);
-      testPos.y += y;
-      
-      const collision = NPCPhysics.checkNPCCollision(testPos, this.scene);
-      if (collision.collides) {
-        return false;
-      }
-    }
-    
-    return true;
-  }
-
-  findGroundLevel(x, z) {
-    const startY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 30;
-    const testPosition = new THREE.Vector3(x, startY, z);
-
-    for (let y = startY; y > 0; y -= 0.5) {
-      testPosition.y = y;
-      const currentCollision = NPCPhysics.checkNPCCollision(
-        testPosition,
-        this.scene
-      );
-
-      testPosition.y = y - 0.5;
-      const belowCollision = NPCPhysics.checkNPCCollision(
-        testPosition,
-        this.scene
-      );
-
-      // ✅ SIMPLIFIED: Current pos clear, below is solid = ground!
-      if (!currentCollision.collides && belowCollision.collides) {
-        return y;
-      }
-    }
-
-    console.warn(`⚠️ No ground found at (${x.toFixed(1)}, ${z.toFixed(1)})`);
-    return -1;
+    // No ground found - return a safe fallback
+    console.warn(`No ground found at (${x}, ${z}), using fallback`);
+    return TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 10;
   }
 
   startNPCSystem() {
     if (this.active) return;
     this.active = true;
+    this.logger.logSystemStart();
   }
 
   update(deltaTime) {
@@ -305,10 +296,13 @@ class NPCSystem {
   respawnNPC(npc) {
     if (npc.hideSeekState === NPC.GAME_STATES.FOUND) return;
 
+    const oldPos = { ...npc.position };
     const newPos = this.findValidSpawnPosition();
+
     if (newPos) {
       npc.position.set(newPos.x, newPos.y, newPos.z);
       NPCPhysics.resetNPCPhysics(npc);
+      this.logger.logRespawn(npc.userData?.id, oldPos, newPos);
     }
   }
 
@@ -327,13 +321,20 @@ class NPCSystem {
       NPC.HIDE_AND_SEEK.seekerCount + NPC.HIDE_AND_SEEK.hiderCount;
 
     if (this.npcs.length < requiredNPCs) {
+      this.logger.logInsufficientNPCs(requiredNPCs, this.npcs.length);
       return false;
     }
+
+    this.logger.logHideSeekStart(
+      NPC.HIDE_AND_SEEK.seekerCount,
+      NPC.HIDE_AND_SEEK.hiderCount
+    );
 
     return this.hideSeekManager.initializeGame(this.npcs);
   }
 
   restartHideSeekGame() {
+    this.logger.logHideSeekRestart();
     this.hideSeekManager.restartGame();
   }
 
@@ -342,12 +343,19 @@ class NPCSystem {
   }
 
   setGameMode(mode) {
+    const oldMode = this.gameMode;
     this.gameMode = mode;
+    this.logger.logGameModeChange(oldMode, mode);
     this.removeAllNPCs();
   }
 
   getNPCsByRole(role) {
     return this.npcs.filter((npc) => npc.role === role);
+  }
+
+  cleanup() {
+    this.logger.logStats();
+    this.logger.close();
   }
 }
 

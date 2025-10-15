@@ -1,5 +1,5 @@
 # Core RL Framework
-ray[rllib]==2.8.0
+ray[rllib]==2.50.0
 gymnasium==0.28.1
 
 # Deep Learning
@@ -15,3 +15,4 @@ tensorboard==2.15.1
 
 # Optional
 pandas==2.1.0
+

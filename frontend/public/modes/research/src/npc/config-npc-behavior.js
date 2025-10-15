@@ -25,19 +25,19 @@ export const NPC = {
 
   BLOCK_REMOVAL: {
     maxReachDistance: 5,
-    maxBlocksRemoved: 10,
+    maxBlocksRemoved: 0,
   },
 
   BLOCK_PLACEMENT: {
     maxReachDistance: 5,
     availableBlockTypes: [1, 2, 3, 4, 5],
-    maxBlocksPlaced: 10,
+    maxBlocksPlaced: 0,
   },
 
   HIDE_AND_SEEK: {
     seekerCount: 1,
     hiderCount: 2,
-    gameTimeLimit: 90000, // 90 seconds
+    gameTimeLimit: 5000, // 90 seconds
     countdownTime: 5000, // 5 seconds prep time (seeker can't move)
 
     SEEKER: {

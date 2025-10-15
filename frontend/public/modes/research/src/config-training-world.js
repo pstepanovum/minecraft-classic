@@ -3,10 +3,10 @@
 // ==============================================================
 
 export const TRAINING_WORLD_CONFIG = {
-  SEED: 6232,
+  SEED: 3,
   SIZE: 32,
   BASE_GROUND_LEVEL: 35,
-  TERRAIN_HEIGHT_RANGE: 5, 
+  TERRAIN_HEIGHT_RANGE: 85, 
   MAX_HEIGHT: 100,
   WATER_LEVEL: 25, 
   BIOME_SCALE: 0.2,
