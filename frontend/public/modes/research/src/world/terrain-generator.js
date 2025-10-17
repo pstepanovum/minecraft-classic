@@ -1,23 +1,17 @@
 // ==============================================================
-// FILE: frontend/public/modes/research/src/world/terrain-generator.js
+// FILE: research/src/world/terrain-generator.js
 // ==============================================================
 
 import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
+import * as GameState from "../../../../src/core/game-state.js"; // ✅ IMPORT
 
 // ✅ Store the current terrain seed globally
 let currentTerrainSeed = TRAINING_WORLD_CONFIG.SEED;
 
-/**
- * Get the current terrain seed being used
- */
 export function getCurrentTerrainSeed() {
   return currentTerrainSeed;
 }
 
-/**
- * Wait for terrain chunks to finish generating after a regeneration command.
- * @param {object} chunkManager - The manager responsible for world chunks.
- */
 async function waitForChunks(chunkManager) {
   const worldSize = TRAINING_WORLD_CONFIG.SIZE;
   const worldCenter = worldSize / 2;
@@ -73,11 +67,6 @@ async function waitForChunks(chunkManager) {
   });
 }
 
-/**
- * Clears existing terrain and generates a new one based on a seed.
- * This is called once per training episode.
- * @param {object} chunkManager - The manager responsible for world chunks.
- */
 export async function regenerateTerrain(chunkManager) {
   if (!chunkManager?.chunkWorker) {
     console.warn(
@@ -89,11 +78,17 @@ export async function regenerateTerrain(chunkManager) {
   const USE_SAME_SEED = false;
   const seed = USE_SAME_SEED ? 42 : Math.floor(Math.random() * 1000000);
 
-  // ✅ Store the seed so NPCs can use it for spawn calculations
+  // ✅ Store the seed for NPC spawns
   currentTerrainSeed = seed;
+
+  // ✅✅ CRITICAL: Update worldConfig.SEED so everything uses the same seed!
+  if (GameState.worldConfig) {
+    GameState.worldConfig.SEED = seed;
+  }
 
   console.log(`🌍 Regenerating terrain with seed ${seed}...`);
 
+  // Tell worker to regenerate with new seed
   chunkManager.chunkWorker.postMessage({
     type: "regenerate",
     seed: seed,
