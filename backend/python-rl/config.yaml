@@ -1,5 +1,6 @@
 # ==============================================================
 # Environment Configuration
+# FILE: backend/python-rl/config.yaml
 # ==============================================================
 environment:
   observation_size: 94
