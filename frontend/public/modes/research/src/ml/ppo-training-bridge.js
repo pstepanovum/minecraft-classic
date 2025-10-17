@@ -60,29 +60,39 @@ export class PPOTrainingBridge {
   // REWARD CONFIGURATION
   // ============================================================
   REWARD_CONFIG = {
-    // Seeker rewards (per step)
-    SEEKER_SEES_HIDER: 10.0, // Per visible hider
-    SEEKER_CLOSE_BONUS: 5.0, // Max bonus for being close
-    SEEKER_VERY_CLOSE: 3.0, // Bonus when <10 units away
-    SEEKER_EXPLORATION: 0.5, // Per new cell visited
-    SEEKER_STATIONARY_PENALTY: -1.0, // For standing still
-
-    // Hider rewards (per step)
-    HIDER_SEEN_PENALTY: -5.0, // When visible to seeker
-    HIDER_DISTANCE_REWARD: 3.0, // Max bonus for staying far
-    HIDER_PANIC_PENALTY: -5.0, // For freezing when seeker close
-    HIDER_ESCAPE_BONUS: 2.0, // For moving when seeker close
-    HIDER_STATIONARY_PENALTY: -0.1, // For staying still when safe
-
+    // Seeker rewards - REBALANCED to encourage movement
+    SEEKER_SEES_HIDER: 2.0,              // Was 10.0 - reduced 80%
+    SEEKER_CLOSE_BONUS: 8.0,             // Was 5.0 - increased
+    SEEKER_VERY_CLOSE: 5.0,              // Was 3.0 - increased
+    SEEKER_APPROACHING_BONUS: 10.0,      // NEW - reward getting closer
+    SEEKER_EXPLORATION: 1.0,             // Was 0.5 - doubled
+    
+    // Seeker penalties - INCREASED to prevent exploitation
+    SEEKER_STATIONARY_PENALTY: -5.0,     // Was -1.0 - 5x stronger
+    SEEKER_ROTATION_ONLY_PENALTY: -8.0,  // NEW - spinning is bad
+    SEEKER_RETREATING_PENALTY: -5.0,     // NEW - moving away is bad
+    
+    // Hider rewards - REBALANCED
+    HIDER_SEEN_PENALTY: -8.0,            // Was -5.0
+    HIDER_DISTANCE_REWARD: 5.0,          // Was 3.0
+    HIDER_PANIC_PENALTY: -8.0,           // Was -5.0
+    HIDER_ESCAPE_BONUS: 5.0,             // Was 2.0
+    HIDER_STATIONARY_PENALTY: -2.0,      // Was -0.1
+    HIDER_SMART_MOVEMENT_BONUS: 3.0,     // NEW - reward good hiding
+    
+    // Boundary penalties - NEW
+    BOUNDARY_HIT_PENALTY: -10.0,         // Hit wall = bad
+    NEAR_BOUNDARY_PENALTY: -2.0,         // Near wall = bad
+    
     // Time penalty
-    TIME_PENALTY: -0.001,
+    TIME_PENALTY: -0.01,                 // Was -0.001 - 10x stronger
 
     // End-of-episode bonuses
-    SEEKER_SUCCESS: 100.0, // All hiders caught
-    SEEKER_FAILURE: -30.0, // Time ran out
-    SEEKER_PARTIAL: 50.0, // Per hider caught
-    HIDER_SURVIVAL: 50.0, // Survived
-    HIDER_CAUGHT: -50.0, // Got caught
+    SEEKER_SUCCESS: 100.0,
+    SEEKER_FAILURE: -30.0,
+    SEEKER_PARTIAL: 50.0,
+    HIDER_SURVIVAL: 50.0,
+    HIDER_CAUGHT: -50.0,
   };
 
   async connect() {
@@ -394,94 +404,220 @@ export class PPOTrainingBridge {
     }
 
     if (npc.role === "seeker") {
-      // Visibility reward
-      const visibleHiders = visionData.visibleNPCs.filter(
-        (n) => n.role === "hider"
-      );
-      reward += visibleHiders.length * this.REWARD_CONFIG.SEEKER_SEES_HIDER;
-
-      // Distance rewards
-      const hiders = this.npcSystem.npcs.filter(
-        (n) => n.role === "hider" && n.hideSeekState !== NPC.GAME_STATES.FOUND
-      );
-
-      if (hiders.length > 0) {
-        const closestDist = Math.min(
-          ...hiders.map((h) => npc.position.distanceTo(h.position))
-        );
-
-        reward += Math.max(
-          0,
-          this.REWARD_CONFIG.SEEKER_CLOSE_BONUS * (1.0 - closestDist / 50)
-        );
-
-        if (closestDist < 10) {
-          reward += this.REWARD_CONFIG.SEEKER_VERY_CLOSE;
-        }
-      }
-
-      // Exploration reward
-      const cellKey = `${Math.floor(npc.position.x)},${Math.floor(
-        npc.position.z
-      )}`;
-      if (!npc.explorationCells.has(cellKey)) {
-        npc.explorationCells.add(cellKey);
-        reward += this.REWARD_CONFIG.SEEKER_EXPLORATION;
-      }
-
-      // Movement penalty
-      const horizontalSpeed = Math.sqrt(
-        npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
-      );
-      if (horizontalSpeed < 0.5) {
-        reward += this.REWARD_CONFIG.SEEKER_STATIONARY_PENALTY;
-      }
+      reward = this.calculateSeekerReward(npc, visionData);
     } else if (npc.role === "hider") {
-      // Visibility penalty
-      const seekers = this.npcSystem.npcs.filter((n) => n.role === "seeker");
-      const seenByAny = this.visionSystem.isVisibleToAny(npc, seekers);
-
-      if (seenByAny) {
-        reward += this.REWARD_CONFIG.HIDER_SEEN_PENALTY;
-      }
-
-      // Distance reward
-      if (seekers.length > 0) {
-        const closestDist = Math.min(
-          ...seekers.map((s) => npc.position.distanceTo(s.position))
-        );
-
-        reward += Math.min(
-          this.REWARD_CONFIG.HIDER_DISTANCE_REWARD,
-          this.REWARD_CONFIG.HIDER_DISTANCE_REWARD * (closestDist / 50)
-        );
-
-        // Panic mode
-        if (closestDist < 15) {
-          const horizontalSpeed = Math.sqrt(
-            npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
-          );
-
-          if (horizontalSpeed < 0.3) {
-            reward += this.REWARD_CONFIG.HIDER_PANIC_PENALTY;
-          } else {
-            reward += this.REWARD_CONFIG.HIDER_ESCAPE_BONUS;
-          }
-        }
-      }
-
-      // Light stationary penalty
-      const horizontalSpeed = Math.sqrt(
-        npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
-      );
-      if (horizontalSpeed < 0.1) {
-        reward += this.REWARD_CONFIG.HIDER_STATIONARY_PENALTY;
-      }
+      reward = this.calculateHiderReward(npc, visionData);
     }
 
+    // Global time penalty
     reward += this.REWARD_CONFIG.TIME_PENALTY;
 
     return reward;
+  }
+
+  calculateSeekerReward(npc, visionData) {
+    let reward = 0;
+
+    // === VISIBILITY REWARDS (REDUCED) ===
+    const visibleHiders = visionData.visibleNPCs.filter(
+      (n) => n.role === "hider"
+    );
+    reward += visibleHiders.length * this.REWARD_CONFIG.SEEKER_SEES_HIDER;
+
+    // === PROXIMITY & APPROACH REWARDS ===
+    const hiders = this.npcSystem.npcs.filter(
+      (n) => n.role === "hider" && n.hideSeekState !== NPC.GAME_STATES.FOUND
+    );
+
+    if (hiders.length > 0) {
+      // Find closest hider
+      let closestDist = Infinity;
+      let closestHider = null;
+      
+      hiders.forEach((h) => {
+        const dist = npc.position.distanceTo(h.position);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestHider = h;
+        }
+      });
+
+      // Distance-based bonus (closer = better)
+      const proximityReward = Math.max(
+        0,
+        this.REWARD_CONFIG.SEEKER_CLOSE_BONUS * (1.0 - closestDist / 50)
+      );
+      reward += proximityReward;
+
+      // Very close bonus
+      if (closestDist < 10) {
+        reward += this.REWARD_CONFIG.SEEKER_VERY_CLOSE;
+      }
+
+      // ✅ APPROACH REWARD - reward for getting closer
+      if (npc.lastClosestDistance !== undefined) {
+        const distanceChange = npc.lastClosestDistance - closestDist;
+        
+        if (distanceChange > 0.05) {
+          // Getting closer! Good!
+          const approachReward = this.REWARD_CONFIG.SEEKER_APPROACHING_BONUS * distanceChange;
+          reward += approachReward;
+        } else if (distanceChange < -0.05) {
+          // Getting farther! Bad!
+          const retreatPenalty = this.REWARD_CONFIG.SEEKER_RETREATING_PENALTY * Math.abs(distanceChange);
+          reward += retreatPenalty;
+        }
+      }
+      npc.lastClosestDistance = closestDist;
+    }
+
+    // === EXPLORATION REWARD ===
+    const cellKey = `${Math.floor(npc.position.x)},${Math.floor(
+      npc.position.z
+    )}`;
+    if (!npc.explorationCells) {
+      npc.explorationCells = new Set();
+    }
+    if (!npc.explorationCells.has(cellKey)) {
+      npc.explorationCells.add(cellKey);
+      reward += this.REWARD_CONFIG.SEEKER_EXPLORATION;
+    }
+
+    // === MOVEMENT ANALYSIS ===
+    const horizontalSpeed = Math.sqrt(
+      npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
+    );
+
+    // Calculate angular velocity (rotation speed)
+    if (npc.lastYaw === undefined) {
+      npc.lastYaw = npc.yaw;
+    }
+    
+    let yawDiff = npc.yaw - npc.lastYaw;
+    // Normalize angle difference to [-PI, PI]
+    while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+    while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+    
+    const angularSpeed = Math.abs(yawDiff) * 60; // Convert to degrees/sec equivalent
+    npc.lastYaw = npc.yaw;
+
+    // ✅ DETECT SPINNING EXPLOIT
+    // If rotating fast (>30 deg/sec) but barely moving (<0.5 units/sec)
+    if (angularSpeed > 0.5 && horizontalSpeed < 0.5) {
+      reward += this.REWARD_CONFIG.SEEKER_ROTATION_ONLY_PENALTY;
+    }
+
+    // ✅ STATIONARY PENALTY
+    if (horizontalSpeed < 0.3) {
+      reward += this.REWARD_CONFIG.SEEKER_STATIONARY_PENALTY;
+    }
+
+    // === BOUNDARY PENALTIES ===
+    const boundaryDist = this.getDistanceToBoundary(npc.position);
+    
+    if (boundaryDist < 2.0) {
+      reward += this.REWARD_CONFIG.NEAR_BOUNDARY_PENALTY;
+    }
+    
+    if (boundaryDist < 0.5) {
+      reward += this.REWARD_CONFIG.BOUNDARY_HIT_PENALTY;
+    }
+
+    return reward;
+  }
+
+  calculateHiderReward(npc, visionData) {
+    let reward = 0;
+
+    const seekers = this.npcSystem.npcs.filter((n) => n.role === "seeker");
+    
+    // === VISIBILITY PENALTY ===
+    const seenByAny = this.visionSystem.isVisibleToAny(npc, seekers);
+
+    if (seenByAny) {
+      reward += this.REWARD_CONFIG.HIDER_SEEN_PENALTY;
+    } else {
+      // ✅ REWARD STAYING HIDDEN
+      reward += this.REWARD_CONFIG.HIDER_DISTANCE_REWARD * 0.3; // Small bonus per step hidden
+    }
+
+    // === DISTANCE FROM SEEKER ===
+    if (seekers.length > 0) {
+      let closestSeekerDist = Infinity;
+      
+      seekers.forEach((s) => {
+        const dist = npc.position.distanceTo(s.position);
+        if (dist < closestSeekerDist) {
+          closestSeekerDist = dist;
+        }
+      });
+
+      // Reward being far from seeker
+      const distanceReward = Math.min(
+        this.REWARD_CONFIG.HIDER_DISTANCE_REWARD,
+        this.REWARD_CONFIG.HIDER_DISTANCE_REWARD * (closestSeekerDist / 50)
+      );
+      reward += distanceReward;
+
+      // === PANIC MODE HANDLING ===
+      const horizontalSpeed = Math.sqrt(
+        npc.velocity.x * npc.velocity.x + npc.velocity.z * npc.velocity.z
+      );
+
+      if (closestSeekerDist < 15) {
+        // Seeker is close! Should be moving!
+        if (horizontalSpeed < 0.3) {
+          // Freezing in panic - BAD
+          reward += this.REWARD_CONFIG.HIDER_PANIC_PENALTY;
+        } else {
+          // Running away - GOOD
+          reward += this.REWARD_CONFIG.HIDER_ESCAPE_BONUS;
+          
+          // ✅ BONUS: Moving away from seeker
+          if (npc.lastSeekerDistance !== undefined) {
+            const distChange = closestSeekerDist - npc.lastSeekerDistance;
+            if (distChange > 0.05) {
+              // Increasing distance = good
+              reward += this.REWARD_CONFIG.HIDER_SMART_MOVEMENT_BONUS * distChange;
+            }
+          }
+        }
+        npc.lastSeekerDistance = closestSeekerDist;
+      } else {
+        // Safe distance - can afford to be still (but slight penalty)
+        if (horizontalSpeed < 0.1) {
+          reward += this.REWARD_CONFIG.HIDER_STATIONARY_PENALTY;
+        }
+      }
+    }
+
+    // === BOUNDARY PENALTIES ===
+    const boundaryDist = this.getDistanceToBoundary(npc.position);
+    
+    if (boundaryDist < 2.0) {
+      reward += this.REWARD_CONFIG.NEAR_BOUNDARY_PENALTY;
+    }
+    
+    if (boundaryDist < 0.5) {
+      reward += this.REWARD_CONFIG.BOUNDARY_HIT_PENALTY;
+    }
+
+    return reward;
+  }
+
+  // ============================================================
+  // HELPER METHODS
+  // ============================================================
+
+  getDistanceToBoundary(position) {
+    const worldSize = this.chunkManager?.worldConfig?.SIZE || 100;
+    
+    const distToNorth = position.z;
+    const distToSouth = worldSize - position.z;
+    const distToWest = position.x;
+    const distToEast = worldSize - position.x;
+    
+    return Math.min(distToNorth, distToSouth, distToWest, distToEast);
   }
 
   applyEndOfEpisodeRewards(rewards) {

@@ -1,14 +1,13 @@
 // ==============================================================
-// FILE: research/src/npc/hide-seek-manager.js (UPDATED)
+// FILE: research/src/npc/hide-seek-manager.js
 // ==============================================================
 
 import { NPC } from "./config-npc-behavior.js";
-
-// IMPORT LOGGER
 import { HideSeekManagerLogger } from "../ml/log/hide-seek-manager-logger.js";
 import sessionManager from "../ml/log/session-manager.js";
 import { TRAINING_WORLD_CONFIG } from "../config-training-world.js";
 import { getCurrentTerrainSeed } from "../world/terrain-generator.js";
+import { findSafeSpawnHeight, isPositionSafe } from "../world/terrain-utils.js"; // ✅ IMPORT
 
 export class HideSeekManager {
   constructor(scene) {
@@ -26,14 +25,12 @@ export class HideSeekManager {
     this.gameRunning = false;
     this.visualIndicators = new Map();
 
-    // Initialize logger
     this.logger = new HideSeekManagerLogger("http://localhost:3001", {
       enabled: true,
-      logLevel: "INFO", // Change to "MIN" for verbose
+      logLevel: "INFO",
       sessionDir: sessionManager.getSessionDir(),
     });
 
-    // Track last countdown second for logging
     this.lastCountdownSecond = -1;
   }
 
@@ -106,7 +103,9 @@ export class HideSeekManager {
   }
 
   verifySpawnDistances() {
-    const MIN_SEEKER_HIDER_DISTANCE = 10;
+    const MIN_SEEKER_HIDER_DISTANCE = 15; // Increased from 10
+    const worldSize = TRAINING_WORLD_CONFIG.SIZE;
+    const seed = getCurrentTerrainSeed(); // ✅ Get seed
 
     this.seekers.forEach((seeker) => {
       this.hiders.forEach((hider) => {
@@ -117,56 +116,40 @@ export class HideSeekManager {
           const dz = hider.position.z - seeker.position.z;
           const angle = Math.atan2(dz, dx);
 
-          // Calculate new X and Z position
-          const newX = hider.position.x - Math.cos(angle) * 15;
-          const newZ = hider.position.z - Math.sin(angle) * 15;
+          // Try multiple distances until we find a safe position
+          for (let distMultiplier = 1.5; distMultiplier <= 3.0; distMultiplier += 0.5) {
+            const moveDistance = MIN_SEEKER_HIDER_DISTANCE * distMultiplier;
+            
+            const newX = hider.position.x - Math.cos(angle) * moveDistance;
+            const newZ = hider.position.z - Math.sin(angle) * moveDistance;
 
-          // ✅ RECALCULATE GROUND HEIGHT at new position
-          const newY = this.calculateSafeHeight(newX, newZ);
+            // Check if position is valid (not too close to boundaries)
+            if (isPositionSafe(newX, newZ, worldSize, 10)) {
+              // ✅ USE TERRAIN FORMULA
+              const newY = findSafeSpawnHeight(newX, newZ, seed);
 
-          // Apply new position with correct ground height
-          seeker.position.x = Math.floor(newX) + 0.5; // Center on block
-          seeker.position.y = newY;
-          seeker.position.z = Math.floor(newZ) + 0.5; // Center on block
+              // Apply new position
+              seeker.position.x = Math.floor(newX) + 0.5;
+              seeker.position.y = newY;
+              seeker.position.z = Math.floor(newZ) + 0.5;
 
-          const newDistance = seeker.position.distanceTo(hider.position);
-          this.logger.logSpawnDistanceAdjustment(
-            seeker.userData.id,
-            hider.userData.id,
-            originalDistance,
-            newDistance
-          );
+              const newDistance = seeker.position.distanceTo(hider.position);
+              
+              console.log(`📏 Adjusted seeker spawn: (${seeker.position.x.toFixed(1)}, ${seeker.position.y.toFixed(1)}, ${seeker.position.z.toFixed(1)}) - Distance: ${newDistance.toFixed(1)}`);
+              
+              this.logger.logSpawnDistanceAdjustment(
+                seeker.userData.id,
+                hider.userData.id,
+                originalDistance,
+                newDistance
+              );
+              
+              break; // Found a good position
+            }
+          }
         }
       });
     });
-  }
-
-  calculateSafeHeight(x, z) {
-    const maxY =
-      TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL +
-      TRAINING_WORLD_CONFIG.TERRAIN_HEIGHT_RANGE +
-      5;
-    const minY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL - 5;
-
-    for (let y = maxY; y >= minY; y -= 0.5) {
-      const testPos = new THREE.Vector3(x, y, z);
-      const belowPos = new THREE.Vector3(x, y - 0.5, z);
-
-      const currentCheck = window.NPCPhysics.checkNPCCollision(
-        testPos,
-        this.scene
-      );
-      const belowCheck = window.NPCPhysics.checkNPCCollision(
-        belowPos,
-        this.scene
-      );
-
-      if (!currentCheck.collides && belowCheck.collides) {
-        return y + 0.5;
-      }
-    }
-
-    return TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 10;
   }
 
   initializeNPC(npc, role, state) {
@@ -233,7 +216,6 @@ export class HideSeekManager {
         const remaining = this.countdownTime - timeInCountdown;
         const secondsRemaining = Math.ceil(remaining / 1000);
 
-        // Log countdown ticks
         if (
           secondsRemaining !== this.lastCountdownSecond &&
           secondsRemaining > 0
@@ -427,7 +409,6 @@ export class HideSeekManager {
     };
   }
 
-  // Add cleanup method
   cleanup() {
     this.logger.logStats();
     this.logger.close();

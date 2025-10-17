@@ -88,11 +88,20 @@ export class StateEncoder {
   encodeBoundaryProximity(state, npc, worldSize) {
     const { start } = this.encoding.boundaryProximity;
     const pos = npc.position;
-
-    state[start] = pos.x / worldSize;
-    state[start + 1] = (worldSize - pos.x) / worldSize;
-    state[start + 2] = pos.z / worldSize;
-    state[start + 3] = (worldSize - pos.z) / worldSize;
+    
+    // Make boundary proximity VERY obvious
+    const distNorth = pos.z;
+    const distSouth = worldSize - pos.z;
+    const distWest = pos.x;
+    const distEast = worldSize - pos.x;
+    
+    // Exponential encoding - gets VERY strong near boundaries
+    const dangerZone = 5; // Within 5 blocks = danger
+    
+    state[start] = Math.exp(-distWest / dangerZone);     // Higher = closer to west wall
+    state[start + 1] = Math.exp(-distEast / dangerZone); // Higher = closer to east wall
+    state[start + 2] = Math.exp(-distNorth / dangerZone); // Higher = closer to north wall
+    state[start + 3] = Math.exp(-distSouth / dangerZone); // Higher = closer to south wall
   }
 
   encodeVisualField(state, perceptionData) {

@@ -1,5 +1,5 @@
 // ==============================================================
-// FILE: research/src/npc/npc-system.js (UPDATED)
+// FILE: research/src/npc/npc-system.js
 // ==============================================================
 
 import { createPlayer } from "../../../../src/player/players.js";
@@ -12,6 +12,7 @@ import NPCMovementController from "./physics/npc-movement-controller.js";
 import { NPCSystemLogger } from "../ml/log/npc-system-logger.js";
 import sessionManager from "../ml/log/session-manager.js";
 import { getCurrentTerrainSeed } from "../world/terrain-generator.js";
+import { findSafeSpawnHeight, isPositionSafe } from "../world/terrain-utils.js"; // ✅ IMPORT
 
 window.NPCPhysics = NPCPhysics;
 
@@ -52,17 +53,14 @@ class NPCSystem {
     };
   }
 
-  // ============================================================
-  // TERRAIN HEIGHT CALCULATION (same as player spawn)
-  // ============================================================
-
   initialize() {
     return this;
   }
 
   findValidSpawnPosition() {
     const worldSize = TRAINING_WORLD_CONFIG.SIZE;
-    const buffer = 5; // Stay away from edges
+    const buffer = 10; // Stay away from edges
+    const seed = getCurrentTerrainSeed(); // ✅ Get current seed
 
     for (let attempt = 0; attempt < 50; attempt++) {
       // Random position in world
@@ -73,14 +71,13 @@ class NPCSystem {
       const blockX = Math.floor(x) + 0.5;
       const blockZ = Math.floor(z) + 0.5;
 
-      // Find ground height
-      const y = this.findSafeSpawnHeight(blockX, blockZ);
+      // ✅ USE TERRAIN FORMULA (not collision checks)
+      const y = findSafeSpawnHeight(blockX, blockZ, seed);
 
-      // Check headroom
-      const headPos = new THREE.Vector3(blockX, y + 1.8, blockZ);
-      const headCheck = NPCPhysics.checkNPCCollision(headPos, this.scene);
-
-      if (headCheck.collides) continue;
+      // Validate position is safe
+      if (!isPositionSafe(blockX, blockZ, worldSize, buffer)) {
+        continue;
+      }
 
       // Check distance to other NPCs
       const spawnPos = new THREE.Vector3(blockX, y, blockZ);
@@ -89,6 +86,7 @@ class NPCSystem {
       });
 
       if (!tooClose) {
+        console.log(`✅ NPC spawn: (${blockX.toFixed(1)}, ${y.toFixed(1)}, ${blockZ.toFixed(1)})`);
         return { x: blockX, y, z: blockZ };
       }
     }
@@ -96,8 +94,9 @@ class NPCSystem {
     // Fallback: world center
     const centerX = worldSize / 2 + 0.5;
     const centerZ = worldSize / 2 + 0.5;
-    const centerY = this.findSafeSpawnHeight(centerX, centerZ);
+    const centerY = findSafeSpawnHeight(centerX, centerZ, seed);
 
+    console.warn(`⚠️ Using fallback spawn at center: (${centerX.toFixed(1)}, ${centerY.toFixed(1)}, ${centerZ.toFixed(1)})`);
     return { x: centerX, y: centerY, z: centerZ };
   }
 
@@ -231,35 +230,6 @@ class NPCSystem {
     this.hiderCount = 0;
 
     this.logger.logAllNPCsRemoved(count);
-  }
-
-  findSafeSpawnHeight(x, z) {
-    // Start scanning from a reasonable high point
-    const maxY =
-      TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL +
-      TRAINING_WORLD_CONFIG.TERRAIN_HEIGHT_RANGE +
-      5;
-    const minY = TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL - 5;
-
-    // Scan down in small steps
-    for (let y = maxY; y >= minY; y -= 0.5) {
-      const testPos = new THREE.Vector3(x, y, z);
-      const belowPos = new THREE.Vector3(x, y - 0.5, z);
-
-      // Check if current position is air and below is solid
-      const currentCheck = NPCPhysics.checkNPCCollision(testPos, this.scene);
-      const belowCheck = NPCPhysics.checkNPCCollision(belowPos, this.scene);
-
-      // Found ground: air above, solid below
-      if (!currentCheck.collides && belowCheck.collides) {
-        // Return position slightly above the solid block
-        return y + 0.5;
-      }
-    }
-
-    // No ground found - return a safe fallback
-    console.warn(`No ground found at (${x}, ${z}), using fallback`);
-    return TRAINING_WORLD_CONFIG.BASE_GROUND_LEVEL + 10;
   }
 
   startNPCSystem() {
